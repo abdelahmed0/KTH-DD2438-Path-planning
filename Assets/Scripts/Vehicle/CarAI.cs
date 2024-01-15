@@ -98,6 +98,7 @@ namespace UnityStandardAssets.Vehicles.Car
             ///////////////////////////
             
             // This is how you access information about the terrain from a simulated laser range finder
+            // It might be wise to use this for error recovery, but do most of the planning before the race clock starts
             RaycastHit hit;
             float maxRange = 50f;
             if (Physics.Raycast(transform.position + transform.up, transform.TransformDirection(Vector3.forward), out hit, maxRange))
