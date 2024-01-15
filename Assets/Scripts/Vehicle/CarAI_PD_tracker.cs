@@ -74,7 +74,7 @@ namespace UnityStandardAssets.Vehicles.Car
 
             old_target_pos = target_position;
 
-            // a PD-controller to get desired velocity
+            // a PD-controller to get desired acceleration from errors in position and velocity
             Vector3 position_error = target_position - transform.position;
             Vector3 velocity_error = target_velocity - my_rigidbody.velocity;
             Vector3 desired_acceleration = k_p * position_error + k_d * velocity_error;
