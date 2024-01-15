@@ -108,6 +108,10 @@ namespace UnityStandardAssets.Vehicles.Car
                 Debug.Log("Did Hit");
             }
 
+            Debug.DrawRay(transform.position, mapManager.localStartPosition, Color.cyan);
+            Debug.DrawRay(transform.position, mapManager.localGoalPosition, Color.blue);
+
+
             // Execute your path here
             // ...
 
