@@ -35,7 +35,16 @@ namespace UnityStandardAssets.Vehicles.Car
 
             my_rigidbody = GetComponent<Rigidbody>();
 
-            old_target_pos = my_target.transform.position;
+            if (my_target == null) // no target, only circle option works
+            {
+                old_target_pos = transform.position;
+            }
+            else
+            {
+                old_target_pos = my_target.transform.position;
+            }
+
+            
 
             // Initialize circle at starting position
             circleCenter = transform.position;
@@ -47,17 +56,20 @@ namespace UnityStandardAssets.Vehicles.Car
 
         private void FixedUpdate()
         {
-            // keep track of target position and velocity (Following a game object)
-            Vector3 target_position = my_target.transform.position;
-            target_velocity = (target_position - old_target_pos) / Time.fixedDeltaTime;
+            Vector3 target_position;
 
-            // for the circle option
             
-            if (driveInCircle)
+
+            if (driveInCircle) // for the circle option
             {
                 alpha +=  Time.deltaTime * (circleSpeed / circleRadius);
                 target_position = circleCenter + circleRadius * new Vector3((float)Math.Sin(alpha), 0f, (float)Math.Cos(alpha));
                 target_velocity = circleSpeed * new Vector3((float)Math.Cos(alpha), 0f, -(float)Math.Sin(alpha));
+            }
+            else // if target is a game object
+            {
+                target_position = my_target.transform.position;
+                target_velocity = (target_position - old_target_pos) / Time.fixedDeltaTime;
             }
 
             old_target_pos = target_position;
