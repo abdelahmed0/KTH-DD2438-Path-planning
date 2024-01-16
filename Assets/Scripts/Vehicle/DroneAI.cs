@@ -26,7 +26,7 @@ public class DroneAI : MonoBehaviour
 
         // This is how you access information about specific points
         var obstacleMap = mapManager.GetObstacleMap();
-        obstacleMap.IsPointTraversable(someLocalPosition);
+        obstacleMap.IsLocalPointTraversable(someLocalPosition);
 
         // Local to grid and inverse. See other methods for more.
         obstacleMap.grid.LocalToCell(someLocalPosition);

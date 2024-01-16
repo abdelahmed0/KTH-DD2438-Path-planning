@@ -53,11 +53,9 @@ namespace UnityStandardAssets.Vehicles.Car.Map
 
             return new Bounds { center = center, extents = extents };
         }
-
-        public Traversability IsPointTraversable(Vector3 localPosition)
+        public Traversability IsLocalPointTraversable(Vector3 localPosition)
         {
-            var worldToCell = grid.WorldToCell(localPosition);
-            return traversabilityPerCell[new Vector2Int(worldToCell.x, worldToCell.z)];
+            return traversabilityPerCell[new Vector2Int((int)localPosition.x, (int)localPosition.z)];
         }
 
         private (Dictionary<Vector2Int, List<GameObject>>, Dictionary<Vector2Int, Traversability>) GenerateMapData(List<GameObject> gameObjects)

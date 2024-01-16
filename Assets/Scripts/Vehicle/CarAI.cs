@@ -28,9 +28,9 @@ namespace UnityStandardAssets.Vehicles.Car
 
             // This is how you access information about specific points
             var obstacleMap = mapManager.GetObstacleMap();
-            obstacleMap.IsPointTraversable(someLocalPosition);
+            obstacleMap.IsLocalPointTraversable(someLocalPosition);
 
-            // Local to grid and inverse. See other methods for more.
+            // Local to grid . See other methods for more.
             obstacleMap.grid.LocalToCell(someLocalPosition);
 
             // This is how you access a traversability grid or gameObjects in each cell.
@@ -56,7 +56,9 @@ namespace UnityStandardAssets.Vehicles.Car
 
             for (int i = 0; i < 3; i++)
             {
-                Vector3 waypoint = new Vector3(UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.x, mapManager.GetObstacleMap().mapBounds.max.x), 0, UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.z, mapManager.GetObstacleMap().mapBounds.max.z));
+                Vector3 waypoint = new Vector3(
+                    UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.x, mapManager.GetObstacleMap().mapBounds.max.x), 0, 
+                    UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.z, mapManager.GetObstacleMap().mapBounds.max.z));
                 my_path.Add(waypoint);
             }
 
@@ -68,7 +70,7 @@ namespace UnityStandardAssets.Vehicles.Car
             Vector3 old_wp = start_pos;
             foreach (var wp in my_path)
             {
-                Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.white, 100f);
+                Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.white, 1000f);
                 old_wp = wp;
             }
         }
@@ -107,7 +109,7 @@ namespace UnityStandardAssets.Vehicles.Car
             {
                 Vector3 closestObstacleInFront = transform.TransformDirection(Vector3.forward) * hit.distance;
                 Debug.DrawRay(globalPosition, closestObstacleInFront, Color.yellow);
-                Debug.Log("Did Hit");
+             //   Debug.Log("Did Hit");
             }
 
             Debug.DrawLine(globalPosition, mapManager.GetGlobalStartPosition(), Color.cyan); // Draw in global space
