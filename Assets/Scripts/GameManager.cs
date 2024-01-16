@@ -30,7 +30,6 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
-        mapManager.Initialize();
         startTime = Time.time;
 
         vehicleInstance = Instantiate(vehiclePrefab);
