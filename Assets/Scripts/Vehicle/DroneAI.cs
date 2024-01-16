@@ -24,7 +24,7 @@ public class DroneAI : MonoBehaviour
 
 
         // Plan your path here
-        Vector3 someLocalPosition = transform.localPosition; // Position of car w.r.p map coordinate origin (not world global)
+        Vector3 someLocalPosition = mapManager.grid.WorldToLocal(transform.position); // Position of car w.r.p map coordinate origin (not world global)
         // transform.localRotation;  Rotation w.r.p map coordinate origin (not world global)
 
         // This is how you access information about specific points

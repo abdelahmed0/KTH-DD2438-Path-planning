@@ -39,7 +39,6 @@ public class GameManager : MonoBehaviour
 
         vehicleInstance.transform.position = mapManager.GetGlobalStartPosition();
         vehicleInstance.transform.rotation = Quaternion.identity;
-        vehicleInstance.transform.parent = mapManager.grid.transform;
 
         var followObject = driveCamera.GetComponent<FollowObject>();
         if (followObject != null)
