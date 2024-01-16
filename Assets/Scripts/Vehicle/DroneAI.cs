@@ -17,10 +17,7 @@ public class DroneAI : MonoBehaviour
         // get the drone controller
         m_Drone = GetComponent<DroneController>();
         mapManager = FindObjectOfType<GameManager>().mapManager;
-        Vector3 start_pos = mapManager.GetGlobalStartPosition();
-        Vector3 goal_pos = mapManager.GetGlobalGoalPosition();
-
-        List<Vector3> my_path = new List<Vector3>();
+      
 
 
         // Plan your path here
@@ -44,13 +41,16 @@ public class DroneAI : MonoBehaviour
         }
         // If you need more details, feel free to check out the ObstacleMap class internals.
 
-        // Replace the code below that makes a random path
-        // ...
+        Vector3 start_pos = mapManager.localStartPosition;
+        Vector3 goal_pos = mapManager.localGoalPosition;
+
+        List<Vector3> my_path = new List<Vector3>();
+
         my_path.Add(start_pos);
 
         for (int i = 0; i < 3; i++)
         {
-            Vector3 waypoint = start_pos + new Vector3(UnityEngine.Random.Range(-50.0f, 50.0f), 0, UnityEngine.Random.Range(-30.0f, 30.0f));
+            Vector3 waypoint = new Vector3(UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.x, mapManager.GetObstacleMap().mapBounds.max.x), 0, UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.z, mapManager.GetObstacleMap().mapBounds.max.z));
             my_path.Add(waypoint);
         }
 
@@ -58,10 +58,11 @@ public class DroneAI : MonoBehaviour
 
 
         // Plot your path to see if it makes sense
+        // Note that path can only be seen in "Scene" window, not "Game" window
         Vector3 old_wp = start_pos;
         foreach (var wp in my_path)
         {
-            Debug.DrawLine(old_wp, wp, Color.red, 100f);
+            Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.white, 100f);
             old_wp = wp;
         }
     }
@@ -69,6 +70,8 @@ public class DroneAI : MonoBehaviour
 
     private void FixedUpdate()
     {
+        var globalPosition = transform.position;
+        
         // How to calculate if a physics collider overlaps another.
         var sampleObstacle = mapManager.GetObstacleMap().obstacleObjects[0];
         bool overlapped = Physics.ComputePenetration(
@@ -88,14 +91,19 @@ public class DroneAI : MonoBehaviour
 
 
         // This is how you access information about the terrain from a simulated laser range finder
+        // It might be wise to use this for error recovery, but do most of the planning before the race clock starts
         RaycastHit hit;
         float maxRange = 50f;
-        if (Physics.Raycast(transform.position + transform.up, transform.TransformDirection(Vector3.forward), out hit, maxRange))
+        if (Physics.Raycast(globalPosition + transform.up, transform.TransformDirection(Vector3.forward), out hit, maxRange))
         {
             Vector3 closestObstacleInFront = transform.TransformDirection(Vector3.forward) * hit.distance;
-            Debug.DrawRay(transform.position, closestObstacleInFront, Color.yellow);
+            Debug.DrawRay(globalPosition, closestObstacleInFront, Color.yellow);
             Debug.Log("Did Hit");
         }
+
+        Debug.DrawLine(globalPosition, mapManager.GetGlobalStartPosition(), Color.cyan); // Draw in global space
+        Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
+
 
         // this is how you control the drone
         m_Drone.Move(0.4f * Mathf.Sin(Time.time * 1.9f), 0.1f);
