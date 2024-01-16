@@ -115,6 +115,10 @@ namespace UnityStandardAssets.Vehicles.Car
             Debug.DrawLine(globalPosition, mapManager.GetGlobalStartPosition(), Color.cyan); // Draw in global space
             Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
 
+            // Check and print traversability of currect position
+            Vector3 myLocalPosition = mapManager.grid.WorldToLocal(transform.position); // Position of car w.r.p map coordinate origin (not world global)
+            var obstacleMap = mapManager.GetObstacleMap();
+            Debug.Log(obstacleMap.IsLocalPointTraversable(myLocalPosition));
 
             // Execute your path here
             // ...
