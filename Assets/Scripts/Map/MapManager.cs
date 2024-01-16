@@ -63,12 +63,12 @@ namespace UnityStandardAssets.Vehicles.Car.Map
 
         public Vector3 GetGlobalStartPosition()
         {
-            return grid.transform.TransformPoint(localStartPosition);
+            return grid.LocalToWorld(localStartPosition);
         }
 
         public Vector3 GetGlobalGoalPosition()
         {
-            return grid.transform.TransformPoint(localGoalPosition);
+            return grid.LocalToWorld(localGoalPosition);
         }
 
         internal void ClearMap()
@@ -287,7 +287,7 @@ namespace UnityStandardAssets.Vehicles.Car.Map
 
                     var gizmoSize = grid.cellSize;
                     gizmoSize.y = 0.005f;
-                    gizmoSize.Scale(grid.transform.localScale*0.8f);
+                    gizmoSize.Scale(grid.transform.localScale * 0.8f);
                     if (posEntity.Value == ObstacleMap.Traversability.Blocked)
                     {
                         Gizmos.color = Color.red;

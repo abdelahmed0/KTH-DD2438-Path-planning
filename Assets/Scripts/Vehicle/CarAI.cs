@@ -56,7 +56,7 @@ namespace UnityStandardAssets.Vehicles.Car
 
             for (int i = 0; i < 3; i++)
             {
-                Vector3 waypoint = start_pos + new Vector3(UnityEngine.Random.Range(-50.0f, 50.0f), 0, UnityEngine.Random.Range(-30.0f, 30.0f));
+                Vector3 waypoint = new Vector3(UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.x, mapManager.GetObstacleMap().mapBounds.max.x), 0, UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.z, mapManager.GetObstacleMap().mapBounds.max.z));
                 my_path.Add(waypoint);
             }
 
@@ -68,7 +68,7 @@ namespace UnityStandardAssets.Vehicles.Car
             Vector3 old_wp = start_pos;
             foreach (var wp in my_path)
             {
-                Debug.DrawLine(old_wp, wp, Color.white, 100f);
+                Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.white, 100f);
                 old_wp = wp;
             }
         }
@@ -78,15 +78,17 @@ namespace UnityStandardAssets.Vehicles.Car
         {
             // How to calculate if a physics collider overlaps another.
             var exampleObstacle = mapManager.GetObstacleMap().obstacleObjects[0];
-            
+
+            var globalPosition = transform.position;
+
             bool overlapped = Physics.ComputePenetration(
-                carCollider, 
-                transform.position, 
+                carCollider,
+                globalPosition,
                 transform.rotation, // Use global position 
                 exampleObstacle.GetComponent<MeshCollider>(), // Can take any collider and "project" it using position and rotation vectors.
-                exampleObstacle.transform.position, 
+                exampleObstacle.transform.position,
                 exampleObstacle.transform.rotation,
-                out var direction, 
+                out var direction,
                 out var distance
             );
             // 'out's give shortest direction and distance to "uncollide" two objects.
@@ -96,20 +98,20 @@ namespace UnityStandardAssets.Vehicles.Car
             }
             // For more details https:docs.unity3d.com/ScriptReference/Physics.ComputePenetration.html
             ///////////////////////////
-            
+
             // This is how you access information about the terrain from a simulated laser range finder
             // It might be wise to use this for error recovery, but do most of the planning before the race clock starts
             RaycastHit hit;
             float maxRange = 50f;
-            if (Physics.Raycast(transform.position + transform.up, transform.TransformDirection(Vector3.forward), out hit, maxRange))
+            if (Physics.Raycast(globalPosition + transform.up, transform.TransformDirection(Vector3.forward), out hit, maxRange))
             {
                 Vector3 closestObstacleInFront = transform.TransformDirection(Vector3.forward) * hit.distance;
-                Debug.DrawRay(transform.position, closestObstacleInFront, Color.yellow);
+                Debug.DrawRay(globalPosition, closestObstacleInFront, Color.yellow);
                 Debug.Log("Did Hit");
             }
 
-            //Debug.DrawRay(transform.position, mapManager.localStartPosition, Color.cyan);
-            //Debug.DrawRay(transform.position, mapManager.localGoalPosition, Color.blue);
+            Debug.DrawLine(globalPosition, mapManager.GetGlobalStartPosition(), Color.cyan); // Draw in global space
+            Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
 
 
             // Execute your path here
