@@ -49,20 +49,10 @@ namespace UnityStandardAssets.Vehicles.Car
 
             Vector3 start_pos = mapManager.localStartPosition;
             Vector3 goal_pos = mapManager.localGoalPosition;
-
-            List<Vector3> my_path = new List<Vector3>();
-
-            my_path.Add(start_pos);
-
-            for (int i = 0; i < 3; i++)
-            {
-                Vector3 waypoint = new Vector3(
-                    UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.x, mapManager.GetObstacleMap().mapBounds.max.x), 0, 
-                    UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.z, mapManager.GetObstacleMap().mapBounds.max.z));
-                my_path.Add(waypoint);
-            }
-
-            my_path.Add(goal_pos);
+            
+            // TODO: Implement RRT
+            // TODO: Consider all obstacle free grid cells instead of only roads
+            List<Vector3> my_path = GenerateSimpleRoadPath(start_pos, goal_pos);
 
 
             // Plot your path to see if it makes sense
@@ -75,6 +65,98 @@ namespace UnityStandardAssets.Vehicles.Car
             }
         }
 
+        private List<Vector3> GenerateSimpleRoadPath(Vector3 localStart, Vector3 localGoal)
+        {
+            List<Vector3> path = new List<Vector3>();
+
+            // Get all road transforms
+            List<Transform> roads = new List<Transform>();
+            foreach (Transform child in mapManager.grid.transform.Find("Ground 0"))
+            {
+                if (child.gameObject.name.Contains("road"))
+                {
+                    roads.Add(child.transform);
+                }
+            }
+
+            // Find the closest road to the start and goal positions
+            Transform startRoad = FindClosestRoad(localStart, roads);
+            Transform goalRoad = FindClosestRoad(localGoal, roads);
+
+            // Perform DFS to find a path through the road network
+            HashSet<Transform> visited = new HashSet<Transform>();
+            Stack<Transform> stack = new Stack<Transform>();
+            Dictionary<Transform, Transform> parentMap = new Dictionary<Transform, Transform>();
+
+            stack.Push(startRoad);
+            visited.Add(startRoad);
+
+            while (stack.Count > 0)
+            {
+                Transform currentRoad = stack.Pop();
+                // Debug.Log(mapManager.grid.WorldToLocal(currentRoad.position));
+                if (currentRoad == goalRoad)
+                {
+                    // Reconstruct the path if the goal is reached
+                    path.Add(localGoal);
+                    while (currentRoad != null)
+                    {
+                        path.Add(mapManager.grid.WorldToLocal(currentRoad.position));
+                        currentRoad = parentMap.GetValueOrDefault(currentRoad);
+                    }
+                    path.Reverse();
+                    path.Add(localStart);
+                    break;
+                }
+
+                foreach (Transform neighbor in GetRoadNeighbors(currentRoad, roads))
+                {
+                    if (!visited.Contains(neighbor))
+                    {
+                        stack.Push(neighbor);
+                        visited.Add(neighbor);
+                        parentMap[neighbor] = currentRoad;
+                    }
+                }
+            }
+
+            return path;
+        }
+
+        private Transform FindClosestRoad(Vector3 localPosition, List<Transform> roads)
+        {
+            Transform closestRoad = null;
+            float minDistance = float.MaxValue;
+
+            foreach (Transform road in roads)
+            {
+                float distance = Vector3.Distance(localPosition, mapManager.grid.WorldToLocal(road.position));
+                if (distance < minDistance)
+                {
+                    minDistance = distance;
+                    closestRoad = road;
+                }
+            }
+
+            return closestRoad;
+        }
+
+        private IEnumerable<Transform> GetRoadNeighbors(Transform road, List<Transform> roads)
+        {
+            // TODO: Only connect to free neighbors
+            // TODO: Consider different neighboring condition since current depends on length of road pieces
+            foreach (Transform otherRoad in roads)
+            {
+                if (otherRoad != road)
+                {
+                    float distance = Vector3.Distance(mapManager.grid.WorldToLocal(road.position), mapManager.grid.WorldToLocal(otherRoad.position));
+                    if (distance < 2.5f)
+                    {
+                        yield return otherRoad;
+                    }
+                }
+            }
+        }
 
         private void FixedUpdate()
         {
@@ -96,7 +178,7 @@ namespace UnityStandardAssets.Vehicles.Car
             // 'out's give shortest direction and distance to "uncollide" two objects.
             if (overlapped || distance > 0)
             {
-                // Means collider inside another   
+                // Means collider inside another
             }
             // For more details https:docs.unity3d.com/ScriptReference/Physics.ComputePenetration.html
             ///////////////////////////
