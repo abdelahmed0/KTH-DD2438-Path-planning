@@ -105,7 +105,6 @@ namespace UnityStandardAssets.Vehicles.Car
                         currentRoad = parentMap.GetValueOrDefault(currentRoad);
                     }
                     path.Reverse();
-                    path.Add(localStart);
                     break;
                 }
 
