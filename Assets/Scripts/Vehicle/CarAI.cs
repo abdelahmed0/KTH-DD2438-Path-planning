@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using System;
 using UnityStandardAssets.Vehicles.Car.Map;
+using System.Linq;
 
 
 namespace UnityStandardAssets.Vehicles.Car
@@ -13,7 +14,8 @@ namespace UnityStandardAssets.Vehicles.Car
         private CarController m_Car; // the car controller we want to use
         private MapManager mapManager;
         private BoxCollider carCollider;
-
+        private List<Vector3> path;
+        private int currentNodeIdx;
         private void Start()
         {
             carCollider = gameObject.transform.Find("Colliders/ColliderBottom").gameObject.GetComponent<BoxCollider>();
@@ -21,44 +23,34 @@ namespace UnityStandardAssets.Vehicles.Car
             m_Car = GetComponent<CarController>();
             mapManager = FindObjectOfType<GameManager>().mapManager;
 
+            // Vector3 someLocalPosition = mapManager.grid.WorldToLocal(transform.position); // Position of car w.r.p map coordinate origin (not world global)
+            // // transform.localRotation;  Rotation w.r.p map coordinate origin (not world global)
 
-            // Plan your path here
-            Vector3 someLocalPosition = mapManager.grid.WorldToLocal(transform.position); // Position of car w.r.p map coordinate origin (not world global)
-            // transform.localRotation;  Rotation w.r.p map coordinate origin (not world global)
+            // // This is how you access information about specific points
+            // var obstacleMap = mapManager.GetObstacleMap();
+            // obstacleMap.IsLocalPointTraversable(someLocalPosition);
 
-            // This is how you access information about specific points
-            var obstacleMap = mapManager.GetObstacleMap();
-            obstacleMap.IsLocalPointTraversable(someLocalPosition);
-
-            // Local to grid . See other methods for more.
-            obstacleMap.grid.LocalToCell(someLocalPosition);
-
-            // This is how you access a traversability grid or gameObjects in each cell.
-            Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
-            Dictionary<Vector2Int, List<GameObject>> gameObjectsData = obstacleMap.gameGameObjectsPerCell;
-            // Easy way to find all position vectors is either "Keys" in above dictionary or:
-            foreach (var posThreeDim in obstacleMap.mapBounds.allPositionsWithin)
-            {
-                Vector2Int gridPos = new Vector2Int(posThreeDim.x, posThreeDim.z);
-            }
-            // If you need more details, feel free to check out the ObstacleMap class internals.
-
-
-            // Replace the code below that makes a random path
-            // ...
+            // // This is how you access a traversability grid or gameObjects in each cell.
+            // Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
+            // Dictionary<Vector2Int, List<GameObject>> gameObjectsData = obstacleMap.gameGameObjectsPerCell;
+            // // Easy way to find all position vectors is either "Keys" in above dictionary or:
+            // foreach (var posThreeDim in obstacleMap.mapBounds.allPositionsWithin)
+            // {
+            //     Vector2Int gridPos = new Vector2Int(posThreeDim.x, posThreeDim.z);
+            // }
 
             Vector3 start_pos = mapManager.localStartPosition;
             Vector3 goal_pos = mapManager.localGoalPosition;
             
             // TODO: Implement RRT
             // TODO: Consider all obstacle free grid cells instead of only roads
-            List<Vector3> my_path = GenerateSimpleRoadPath(start_pos, goal_pos);
-
-
+            path = GenerateSimpleRoadPath(start_pos, goal_pos);
+            currentNodeIdx = 0;
+            
             // Plot your path to see if it makes sense
             // Note that path can only be seen in "Scene" window, not "Game" window
             Vector3 old_wp = start_pos;
-            foreach (var wp in my_path)
+            foreach (var wp in path)
             {
                 Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.white, 1000f);
                 old_wp = wp;
@@ -67,7 +59,7 @@ namespace UnityStandardAssets.Vehicles.Car
 
         private List<Vector3> GenerateSimpleRoadPath(Vector3 localStart, Vector3 localGoal)
         {
-            List<Vector3> path = new List<Vector3>();
+            List<Vector3> roadPath = new List<Vector3>();
 
             // Get all road transforms
             List<Transform> roads = new List<Transform>();
@@ -98,13 +90,13 @@ namespace UnityStandardAssets.Vehicles.Car
                 if (currentRoad == goalRoad)
                 {
                     // Reconstruct the path if the goal is reached
-                    path.Add(localGoal);
+                    roadPath.Add(localGoal);
                     while (currentRoad != null)
                     {
-                        path.Add(mapManager.grid.WorldToLocal(currentRoad.position));
+                        roadPath.Add(mapManager.grid.WorldToLocal(currentRoad.position));
                         currentRoad = parentMap.GetValueOrDefault(currentRoad);
                     }
-                    path.Reverse();
+                    roadPath.Reverse();
                     break;
                 }
 
@@ -119,7 +111,7 @@ namespace UnityStandardAssets.Vehicles.Car
                 }
             }
 
-            return path;
+            return roadPath;
         }
 
         private Transform FindClosestRoad(Vector3 localPosition, List<Transform> roads)
@@ -193,8 +185,6 @@ namespace UnityStandardAssets.Vehicles.Car
              //   Debug.Log("Did Hit");
             }
 
-            Debug.DrawLine(globalPosition, mapManager.GetGlobalStartPosition(), Color.cyan); // Draw in global space
-            Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
 
             // Check and print traversability of currect position
             Vector3 myLocalPosition = mapManager.grid.WorldToLocal(transform.position); // Position of car w.r.p map coordinate origin (not world global)
@@ -202,10 +192,19 @@ namespace UnityStandardAssets.Vehicles.Car
             Debug.Log(obstacleMap.IsLocalPointTraversable(myLocalPosition));
 
             // Execute your path here
-            // ...
+            
+
+            // If car is at pathNode, update pathNodeEnumerator
+            if (Vector3.Distance(mapManager.grid.WorldToLocal(globalPosition), path.ElementAt(currentNodeIdx)) < 1f)
+            {
+                currentNodeIdx++;
+            }
+            Debug.DrawLine(globalPosition, mapManager.grid.LocalToWorld(path.ElementAt(currentNodeIdx)), Color.cyan);
+            Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
 
             // this is how you control the car
-            m_Car.Move(1f, 1f, 1f, 0f);
+            // m_Car.Move(1f, 1f, 1f, 0f);
+            m_Car.Move(0f, 1f, 0f, 0f);
         }
     }
 }
