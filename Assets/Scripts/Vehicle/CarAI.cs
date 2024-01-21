@@ -11,6 +11,18 @@ namespace UnityStandardAssets.Vehicles.Car
     [RequireComponent(typeof(CarController))]
     public class CarAI : MonoBehaviour
     {
+        public bool driveInCircle = false;
+        public float circleRadius = 15f;
+        public float circleSpeed = 5f;
+        float alpha = 0f;
+        public Vector3 circleCenter = Vector3.zero;
+        public Vector3 target_velocity;
+        public float k_p = 1f;
+        public float k_d = 1f;
+        public float nodeDistThreshold = 0.1f;
+
+        Rigidbody my_rigidbody;
+
         private CarController m_Car; // the car controller we want to use
         private MapManager mapManager;
         private BoxCollider carCollider;
@@ -22,6 +34,7 @@ namespace UnityStandardAssets.Vehicles.Car
             // get the car controller
             m_Car = GetComponent<CarController>();
             mapManager = FindObjectOfType<GameManager>().mapManager;
+            my_rigidbody = GetComponent<Rigidbody>();
 
             // Vector3 someLocalPosition = mapManager.grid.WorldToLocal(transform.position); // Position of car w.r.p map coordinate origin (not world global)
             // // transform.localRotation;  Rotation w.r.p map coordinate origin (not world global)
@@ -151,60 +164,85 @@ namespace UnityStandardAssets.Vehicles.Car
 
         private void FixedUpdate()
         {
-            // How to calculate if a physics collider overlaps another.
-            var exampleObstacle = mapManager.GetObstacleMap().obstacleObjects[0];
+            // // How to calculate if a physics collider overlaps another.
+            // var exampleObstacle = mapManager.GetObstacleMap().obstacleObjects[0];
+            // bool overlapped = Physics.ComputePenetration(
+            //     carCollider,
+            //     globalPosition,
+            //     transform.rotation, // Use global position 
+            //     exampleObstacle.GetComponent<MeshCollider>(), // Can take any collider and "project" it using position and rotation vectors.
+            //     exampleObstacle.transform.position,
+            //     exampleObstacle.transform.rotation,
+            //     out var direction,
+            //     out var distance
+            // );
+            // // 'out's give shortest direction and distance to "uncollide" two objects.
+            // if (overlapped || distance > 0)
+            // {
+            //     // Means collider inside another
+            // }
+            // // For more details https:docs.unity3d.com/ScriptReference/Physics.ComputePenetration.html
+            // ///////////////////////////
+
+            // // This is how you access information about the terrain from a simulated laser range finder
+            // // It might be wise to use this for error recovery, but do most of the planning before the race clock starts
+            // RaycastHit hit;
+            // float maxRange = 50f;
+            // if (Physics.Raycast(globalPosition + transform.up, transform.TransformDirection(Vector3.forward), out hit, maxRange))
+            // {
+            //     Vector3 closestObstacleInFront = transform.TransformDirection(Vector3.forward) * hit.distance;
+            //     Debug.DrawRay(globalPosition, closestObstacleInFront, Color.yellow);
+            //  //   Debug.Log("Did Hit");
+            // }
+
 
             var globalPosition = transform.position;
-
-            bool overlapped = Physics.ComputePenetration(
-                carCollider,
-                globalPosition,
-                transform.rotation, // Use global position 
-                exampleObstacle.GetComponent<MeshCollider>(), // Can take any collider and "project" it using position and rotation vectors.
-                exampleObstacle.transform.position,
-                exampleObstacle.transform.rotation,
-                out var direction,
-                out var distance
-            );
-            // 'out's give shortest direction and distance to "uncollide" two objects.
-            if (overlapped || distance > 0)
-            {
-                // Means collider inside another
-            }
-            // For more details https:docs.unity3d.com/ScriptReference/Physics.ComputePenetration.html
-            ///////////////////////////
-
-            // This is how you access information about the terrain from a simulated laser range finder
-            // It might be wise to use this for error recovery, but do most of the planning before the race clock starts
-            RaycastHit hit;
-            float maxRange = 50f;
-            if (Physics.Raycast(globalPosition + transform.up, transform.TransformDirection(Vector3.forward), out hit, maxRange))
-            {
-                Vector3 closestObstacleInFront = transform.TransformDirection(Vector3.forward) * hit.distance;
-                Debug.DrawRay(globalPosition, closestObstacleInFront, Color.yellow);
-             //   Debug.Log("Did Hit");
-            }
-
-
-            // Check and print traversability of currect position
-            Vector3 myLocalPosition = mapManager.grid.WorldToLocal(transform.position); // Position of car w.r.p map coordinate origin (not world global)
-            var obstacleMap = mapManager.GetObstacleMap();
-            Debug.Log(obstacleMap.IsLocalPointTraversable(myLocalPosition));
+            Vector3 localPosition = mapManager.grid.WorldToLocal(transform.position);
+            // var obstacleMap = mapManager.GetObstacleMap();
+            // Debug.Log(obstacleMap.IsLocalPointTraversable(localPosition));
 
             // Execute your path here
             
+            Vector3 localNextNode = path.ElementAt(currentNodeIdx);
+            Vector3 globalNextNode = mapManager.grid.LocalToWorld(localNextNode);
 
             // If car is at pathNode, update pathNodeEnumerator
-            if (Vector3.Distance(mapManager.grid.WorldToLocal(globalPosition), path.ElementAt(currentNodeIdx)) < 1f)
+            if (currentNodeIdx < path.Count() - 1 && Vector3.Distance(mapManager.grid.WorldToLocal(globalPosition), localNextNode) < nodeDistThreshold)
             {
                 currentNodeIdx++;
             }
-            Debug.DrawLine(globalPosition, mapManager.grid.LocalToWorld(path.ElementAt(currentNodeIdx)), Color.cyan);
+            Debug.DrawLine(globalPosition, globalNextNode, Color.cyan);
             Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
 
+            Vector3 target_position;
+
+            if (driveInCircle) // for the circle option
+            {
+                alpha +=  Time.deltaTime * (circleSpeed / circleRadius);
+                target_position = circleCenter + circleRadius * new Vector3((float)Math.Sin(alpha), 0f, (float)Math.Cos(alpha));
+                target_velocity = circleSpeed * new Vector3((float)Math.Cos(alpha), 0f, -(float)Math.Sin(alpha));
+            }
+            else // target is next node in path
+            {
+                target_position = globalNextNode;
+                target_velocity = (target_position - globalPosition) / Time.fixedDeltaTime;
+            }
+
+            // a PD-controller to get desired acceleration from errors in position and velocity
+            Vector3 position_error = target_position - transform.position;
+            Vector3 velocity_error = target_velocity - my_rigidbody.velocity;
+            Vector3 desired_acceleration = k_p * position_error + k_d * velocity_error;
+
+            float steering = Vector3.Dot(desired_acceleration, transform.right);
+            float acceleration = Vector3.Dot(desired_acceleration, transform.forward);
+
+            Debug.DrawLine(target_position, target_position + target_velocity, Color.red);
+            Debug.DrawLine(globalPosition, globalPosition + my_rigidbody.velocity, Color.magenta);
+            Debug.DrawLine(globalPosition, globalPosition + desired_acceleration, Color.black);
+
             // this is how you control the car
-            // m_Car.Move(1f, 1f, 1f, 0f);
-            m_Car.Move(0f, 1f, 0f, 0f);
+            Debug.Log("Steering:" + steering + " Acceleration:" + acceleration);
+            m_Car.Move(steering, acceleration, acceleration, 0f);
         }
     }
 }

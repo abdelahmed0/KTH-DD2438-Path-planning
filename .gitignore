@@ -122,3 +122,6 @@ _UpgradeReport_Files/
 Thumbs.db
 Desktop.ini
 .DS_Store
+.vscode/settings.json
+*.meta
+Assets/Scenes/main (car).unity
