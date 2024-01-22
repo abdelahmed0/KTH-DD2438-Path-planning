@@ -19,7 +19,7 @@ namespace UnityStandardAssets.Vehicles.Car
         private Vector3 target_velocity;
         public float k_p = 0.1f;
         public float k_d = 0.2f;
-        public float nodeDistThreshold = 1f;
+        public float nodeDistThreshold = 0.6f;
 
         Rigidbody my_rigidbody;
 
@@ -36,30 +36,16 @@ namespace UnityStandardAssets.Vehicles.Car
             mapManager = FindObjectOfType<GameManager>().mapManager;
             my_rigidbody = GetComponent<Rigidbody>();
 
-            // Vector3 someLocalPosition = mapManager.grid.WorldToLocal(transform.position); // Position of car w.r.p map coordinate origin (not world global)
-            // // transform.localRotation;  Rotation w.r.p map coordinate origin (not world global)
-
-            // // This is how you access information about specific points
-            // var obstacleMap = mapManager.GetObstacleMap();
-            // obstacleMap.IsLocalPointTraversable(someLocalPosition);
-
-            // // This is how you access a traversability grid or gameObjects in each cell.
-            // Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
-            // Dictionary<Vector2Int, List<GameObject>> gameObjectsData = obstacleMap.gameGameObjectsPerCell;
-            // // Easy way to find all position vectors is either "Keys" in above dictionary or:
-            // foreach (var posThreeDim in obstacleMap.mapBounds.allPositionsWithin)
-            // {
-            //     Vector2Int gridPos = new Vector2Int(posThreeDim.x, posThreeDim.z);
-            // }
-
             Vector3 localStart = mapManager.localStartPosition;
             Vector3 localGoal = mapManager.localGoalPosition;
 
             Vector3 globalStart = mapManager.grid.LocalToWorld(localStart);
             
             // TODO: Consider all obstacle free grid cells instead of only roads
-            path = GenerateDFSPath(localStart, localGoal);
+            // Tree rrtTree = new Tree(globalStart);
+            // List<Vector3> rrtPath = GenerateRRTPath(rrtTree.Root, localGoal);
             currentNodeIdx = 0;
+            path = GenerateAStarPath(localStart, localGoal);
             
             // Plot your path to see if it makes sense
             // Note that path can only be seen in "Scene" window, not "Game" window
@@ -72,17 +58,83 @@ namespace UnityStandardAssets.Vehicles.Car
         }
         
 
+        private List<Vector3> GenerateAStarPath(Vector3 localStart, Vector3 localGoal)
+        {
+            var roadPath = new List<Vector3>();
+
+            Vector3Int startCell = mapManager.grid.LocalToCell(localStart);
+            Vector3Int goalCell = mapManager.grid.LocalToCell(localGoal);
+
+            // Perform A* to find a path 
+            var openSet = new PriorityQueue<float, Vector3Int>();
+            var closedSet = new HashSet<Vector3Int>();
+            var parentMap = new Dictionary<Vector3Int, Vector3Int>();
+            var gScore = new Dictionary<Vector3Int, float>();
+            var fScore = new Dictionary<Vector3Int, float>();
+
+            openSet.Enqueue(0, startCell);
+            gScore[startCell] = 0;
+            fScore[startCell] = Vector3.Distance(mapManager.grid.CellToWorld(startCell), mapManager.grid.CellToWorld(goalCell));
+
+            while (openSet.Count > 0)
+            {
+                var currentCell = openSet.Dequeue().Value;
+                // Debug.DrawLine(mapManager.grid.CellToWorld(current), mapManager.grid.CellToWorld(startCell), Color.red);
+
+                if (currentCell == goalCell)
+                {
+                     // Reconstruct the path if the goal is reached
+                    while (currentCell != startCell)
+                    {
+                        Vector3 current = mapManager.grid.CellToLocal(currentCell);
+                        roadPath.Add(new Vector3(current.x, 0, current.y)); // counteract grids xzy format
+                        currentCell = parentMap[currentCell];
+                    }
+                    roadPath.Add(localStart);
+                    roadPath.Reverse();
+                    break;
+                }
+
+                closedSet.Add(currentCell);
+
+                foreach (Vector3Int neighbor in GetNeighborCells(currentCell))
+                {
+                    if (closedSet.Contains(neighbor))
+                    {
+                        continue;
+                    }
+
+                    float tmpGScore = gScore[currentCell] + Vector3.Distance(mapManager.grid.CellToWorld(currentCell), mapManager.grid.CellToWorld(neighbor));
+
+                    if (!gScore.ContainsKey(neighbor) || tmpGScore < gScore[neighbor])
+                    {
+                        gScore[neighbor] = tmpGScore;
+                        fScore[neighbor] = gScore[neighbor] + Vector3.Distance(mapManager.grid.CellToWorld(neighbor), mapManager.grid.CellToWorld(goalCell));
+                        parentMap[neighbor] = currentCell;
+
+                        if (!openSet.Contains(neighbor))
+                        {
+                            openSet.Enqueue(fScore[neighbor], neighbor);
+                        }
+                    }
+                }
+            }
+
+            return roadPath;
+        }
+
+
         private List<Vector3> GenerateDFSPath(Vector3 localStart, Vector3 localGoal)
         {
-            List<Vector3> roadPath = new();
+            var roadPath = new List<Vector3>();
 
             Vector3Int startCell = mapManager.grid.LocalToCell(localStart);
             Vector3Int goalCell = mapManager.grid.LocalToCell(localGoal);
 
             // Perform DFS to find a path through the road network
-            HashSet<Vector3Int> visited = new();
-            Stack<Vector3Int> stack = new();
-            Dictionary<Vector3Int, Vector3Int> parentMap = new();
+            var visited = new HashSet<Vector3Int>();
+            var stack = new Stack<Vector3Int>();
+            var parentMap = new Dictionary<Vector3Int, Vector3Int>();
 
             stack.Push(startCell);
             visited.Add(startCell);
@@ -97,7 +149,7 @@ namespace UnityStandardAssets.Vehicles.Car
                     while (currentCell != startCell)
                     {
                         Vector3 current = mapManager.grid.CellToLocal(currentCell);
-                        roadPath.Add(new Vector3(current.x, current.z, current.y)); // counteract grids xzy
+                        roadPath.Add(new Vector3(current.x, current.z, current.y)); // counteract grids xzy format
                         currentCell = parentMap[currentCell];
                     }
                     roadPath.Add(localStart);
@@ -123,23 +175,50 @@ namespace UnityStandardAssets.Vehicles.Car
         {
             var obstacleMap = mapManager.GetObstacleMap();
             Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
-            
-            for (int x_offset = -1; x_offset < 2; ++x_offset)
+
+            // Define offsets for horizontal and vertical neighbors
+            int[] xOffsets = { -1, 0, 1, 0 };
+            int[] zOffsets = { 0, 1, 0, -1 };
+
+            for (int i = 0; i < xOffsets.Length; i++)
             {
-                for (int z_offset = -1; z_offset < 2; ++z_offset)
+                int x_offset = xOffsets[i];
+                int z_offset = zOffsets[i];
+
+                var neighbor = cell;
+                neighbor.x += x_offset;
+                neighbor.z += z_offset;
+                var neighbor2d = new Vector2Int(neighbor.x, neighbor.z);
+
+                if (mapData.ContainsKey(neighbor2d) && mapData[neighbor2d] == ObstacleMap.Traversability.Free)
                 {
-                    Vector3Int neighbor = cell + new Vector3Int(x_offset, 0, z_offset);
-
-                    Vector2Int neighbor2d = new(neighbor.x, neighbor.z);
-
-                    if (mapData.ContainsKey(neighbor2d) 
-                        && mapData[neighbor2d] == ObstacleMap.Traversability.Free)
-                    {
-                        yield return neighbor;
-                    }
+                    yield return neighbor;
                 }
             }
         }
+
+        // private IEnumerable<Vector3Int> GetNeighborCells(Vector3Int cell)
+        // {
+        //     // Takes diagonal neighbors into consideration as well
+        //     var obstacleMap = mapManager.GetObstacleMap();
+        //     Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
+            
+        //     for (int x_offset = -1; x_offset < 2; ++x_offset)
+        //     {
+        //         for (int z_offset = -1; z_offset < 2; ++z_offset)
+        //         {
+        //             Vector3Int neighbor = cell + new Vector3Int(x_offset, 0, z_offset);
+
+        //             Vector2Int neighbor2d = new(neighbor.x, neighbor.z);
+
+        //             if (mapData.ContainsKey(neighbor2d) 
+        //                 && mapData[neighbor2d] == ObstacleMap.Traversability.Free)
+        //             {
+        //                 yield return neighbor;
+        //             }
+        //         }
+        //     }
+        // }
 
         private void FixedUpdate()
         {
@@ -170,19 +249,25 @@ namespace UnityStandardAssets.Vehicles.Car
             // Debug.Log(obstacleMap.IsLocalPointTraversable(localPosition));
 
             // Execute your path here
-            
-            Vector3 localNextNode = path.ElementAt(currentNodeIdx);
-            Vector3 globalNextNode = mapManager.grid.LocalToWorld(localNextNode);
-
-            // If car is at pathNode, update pathNodeEnumerator
-            if (currentNodeIdx < path.Count() - 1 && Vector3.Distance(mapManager.grid.WorldToLocal(globalPosition), localNextNode) < nodeDistThreshold)
+            if (path.Count() == 0)
             {
-                currentNodeIdx++;
+                Debug.LogWarning("Path empty!");
             }
-            Debug.DrawLine(globalPosition, globalNextNode, Color.cyan);
-            Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
+            else
+            {
+                Vector3 localNextNode = path.ElementAt(currentNodeIdx);
+                Vector3 globalNextNode = mapManager.grid.LocalToWorld(localNextNode);
 
-            PdControllTowardsPosition(globalNextNode);
+                Debug.DrawLine(globalPosition, globalNextNode, Color.cyan);
+                PdControllTowardsPosition(globalNextNode);
+                // If car is at pathNode, update pathNodeEnumerator
+                if (currentNodeIdx < path.Count() - 1 && Vector3.Distance(mapManager.grid.WorldToLocal(globalPosition), localNextNode) < nodeDistThreshold)
+                {
+                    currentNodeIdx++;
+                }
+            }
+
+            Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
         }
 
         private void PdControllTowardsPosition(Vector3 globalTargetPosition)
@@ -217,6 +302,89 @@ namespace UnityStandardAssets.Vehicles.Car
             // this is how you control the car
             Debug.Log("Steering:" + steering + " Acceleration:" + acceleration);
             m_Car.Move(steering, acceleration, acceleration, 0f);
+        }
+    }
+
+    public class PriorityQueue<TPriority, TValue>
+    {
+        private List<Node> elements = new List<Node>();
+
+        public int Count => elements.Count;
+
+        public void Enqueue(TPriority priority, TValue value)
+        {
+            var newNode = new Node(priority, value);
+            elements.Add(newNode);
+            int index = elements.Count - 1;
+
+            while (index > 0)
+            {
+                int parentIndex = (index - 1) / 2;
+                if (Comparer<TPriority>.Default.Compare(elements[parentIndex].Priority, newNode.Priority) <= 0)
+                    break;
+
+                elements[index] = elements[parentIndex];
+                index = parentIndex;
+            }
+
+            elements[index] = newNode;
+        }
+
+        public KeyValuePair<TPriority, TValue> Dequeue()
+        {
+            if (elements.Count == 0)
+                throw new InvalidOperationException("Queue is empty");
+
+            var frontItem = elements[0];
+            int lastIndex = elements.Count - 1;
+            elements[0] = elements[lastIndex];
+            elements.RemoveAt(lastIndex);
+
+            int index = 0;
+            while (true)
+            {
+                int childIndex = index * 2 + 1;
+                if (childIndex >= lastIndex)
+                    break;
+
+                int rightChildIndex = childIndex + 1;
+                if (rightChildIndex < lastIndex && Comparer<TPriority>.Default.Compare(elements[rightChildIndex].Priority, elements[childIndex].Priority) < 0)
+                    childIndex = rightChildIndex;
+
+                if (Comparer<TPriority>.Default.Compare(elements[childIndex].Priority, elements[index].Priority) >= 0)
+                    break;
+
+                var tmp = elements[index];
+                elements[index] = elements[childIndex];
+                elements[childIndex] = tmp;
+                index = childIndex;
+            }
+
+            return new KeyValuePair<TPriority, TValue>(frontItem.Priority, frontItem.Value);
+        }
+
+         public bool Contains(TValue value)
+        {
+            foreach (var element in elements)
+            {
+                if (EqualityComparer<TValue>.Default.Equals(element.Value, value))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private class Node
+        {
+            public TPriority Priority { get; }
+            public TValue Value { get; }
+
+            public Node(TPriority priority, TValue value)
+            {
+                Priority = priority;
+                Value = value;
+            }
         }
     }
 
