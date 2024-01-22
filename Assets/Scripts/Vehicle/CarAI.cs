@@ -16,10 +16,10 @@ namespace UnityStandardAssets.Vehicles.Car
         public float circleSpeed = 5f;
         float alpha = 0f;
         public Vector3 circleCenter = Vector3.zero;
-        public Vector3 target_velocity;
-        public float k_p = 1f;
-        public float k_d = 1f;
-        public float nodeDistThreshold = 0.1f;
+        private Vector3 target_velocity;
+        public float k_p = 0.1f;
+        public float k_d = 0.2f;
+        public float nodeDistThreshold = 1f;
 
         Rigidbody my_rigidbody;
 
@@ -52,74 +52,66 @@ namespace UnityStandardAssets.Vehicles.Car
             //     Vector2Int gridPos = new Vector2Int(posThreeDim.x, posThreeDim.z);
             // }
 
-            Vector3 start_pos = mapManager.localStartPosition;
-            Vector3 goal_pos = mapManager.localGoalPosition;
+            Vector3 localStart = mapManager.localStartPosition;
+            Vector3 localGoal = mapManager.localGoalPosition;
+
+            Vector3 globalStart = mapManager.grid.LocalToWorld(localStart);
             
-            // TODO: Implement RRT
             // TODO: Consider all obstacle free grid cells instead of only roads
-            path = GenerateSimpleRoadPath(start_pos, goal_pos);
+            path = GenerateDFSPath(localStart, localGoal);
             currentNodeIdx = 0;
             
             // Plot your path to see if it makes sense
             // Note that path can only be seen in "Scene" window, not "Game" window
-            Vector3 old_wp = start_pos;
+            Vector3 old_wp = localStart;
             foreach (var wp in path)
             {
                 Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.white, 1000f);
                 old_wp = wp;
             }
         }
+        
 
-        private List<Vector3> GenerateSimpleRoadPath(Vector3 localStart, Vector3 localGoal)
+        private List<Vector3> GenerateDFSPath(Vector3 localStart, Vector3 localGoal)
         {
-            List<Vector3> roadPath = new List<Vector3>();
+            List<Vector3> roadPath = new();
 
-            // Get all road transforms
-            List<Transform> roads = new List<Transform>();
-            foreach (Transform child in mapManager.grid.transform.Find("Ground 0"))
-            {
-                if (child.gameObject.name.Contains("road"))
-                {
-                    roads.Add(child.transform);
-                }
-            }
-
-            // Find the closest road to the start and goal positions
-            Transform startRoad = FindClosestRoad(localStart, roads);
-            Transform goalRoad = FindClosestRoad(localGoal, roads);
+            Vector3Int startCell = mapManager.grid.LocalToCell(localStart);
+            Vector3Int goalCell = mapManager.grid.LocalToCell(localGoal);
 
             // Perform DFS to find a path through the road network
-            HashSet<Transform> visited = new HashSet<Transform>();
-            Stack<Transform> stack = new Stack<Transform>();
-            Dictionary<Transform, Transform> parentMap = new Dictionary<Transform, Transform>();
+            HashSet<Vector3Int> visited = new();
+            Stack<Vector3Int> stack = new();
+            Dictionary<Vector3Int, Vector3Int> parentMap = new();
 
-            stack.Push(startRoad);
-            visited.Add(startRoad);
+            stack.Push(startCell);
+            visited.Add(startCell);
 
             while (stack.Count > 0)
             {
-                Transform currentRoad = stack.Pop();
-                // Debug.Log(mapManager.grid.WorldToLocal(currentRoad.position));
-                if (currentRoad == goalRoad)
+                Vector3Int currentCell = stack.Pop();
+
+                if (currentCell == goalCell)
                 {
                     // Reconstruct the path if the goal is reached
-                    roadPath.Add(localGoal);
-                    while (currentRoad != null)
+                    while (currentCell != startCell)
                     {
-                        roadPath.Add(mapManager.grid.WorldToLocal(currentRoad.position));
-                        currentRoad = parentMap.GetValueOrDefault(currentRoad);
+                        Vector3 current = mapManager.grid.CellToLocal(currentCell);
+                        roadPath.Add(new Vector3(current.x, current.z, current.y)); // counteract grids xzy
+                        currentCell = parentMap[currentCell];
                     }
+                    roadPath.Add(localStart);
                     roadPath.Reverse();
                     break;
                 }
-
-                foreach (Transform neighbor in GetRoadNeighbors(currentRoad, roads))
+                foreach (Vector3Int neighbor in GetNeighborCells(currentCell))
                 {
                     if (!visited.Contains(neighbor))
                     {
+                        // Debug.DrawLine(mapManager.grid.LocalToWorld(current), mapManager.grid.LocalToWorld(neighbor), Color.red, 1000f);
                         stack.Push(neighbor);
                         visited.Add(neighbor);
-                        parentMap[neighbor] = currentRoad;
+                        parentMap[neighbor] = currentCell;
                     }
                 }
             }
@@ -127,36 +119,23 @@ namespace UnityStandardAssets.Vehicles.Car
             return roadPath;
         }
 
-        private Transform FindClosestRoad(Vector3 localPosition, List<Transform> roads)
+        private IEnumerable<Vector3Int> GetNeighborCells(Vector3Int cell)
         {
-            Transform closestRoad = null;
-            float minDistance = float.MaxValue;
-
-            foreach (Transform road in roads)
+            var obstacleMap = mapManager.GetObstacleMap();
+            Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
+            
+            for (int x_offset = -1; x_offset < 2; ++x_offset)
             {
-                float distance = Vector3.Distance(localPosition, mapManager.grid.WorldToLocal(road.position));
-                if (distance < minDistance)
+                for (int z_offset = -1; z_offset < 2; ++z_offset)
                 {
-                    minDistance = distance;
-                    closestRoad = road;
-                }
-            }
+                    Vector3Int neighbor = cell + new Vector3Int(x_offset, 0, z_offset);
 
-            return closestRoad;
-        }
+                    Vector2Int neighbor2d = new(neighbor.x, neighbor.z);
 
-        private IEnumerable<Transform> GetRoadNeighbors(Transform road, List<Transform> roads)
-        {
-            // TODO: Only connect to free neighbors
-            // TODO: Consider different neighboring condition since current depends on length of road pieces
-            foreach (Transform otherRoad in roads)
-            {
-                if (otherRoad != road)
-                {
-                    float distance = Vector3.Distance(mapManager.grid.WorldToLocal(road.position), mapManager.grid.WorldToLocal(otherRoad.position));
-                    if (distance < 2.5f)
+                    if (mapData.ContainsKey(neighbor2d) 
+                        && mapData[neighbor2d] == ObstacleMap.Traversability.Free)
                     {
-                        yield return otherRoad;
+                        yield return neighbor;
                     }
                 }
             }
@@ -184,17 +163,6 @@ namespace UnityStandardAssets.Vehicles.Car
             // // For more details https:docs.unity3d.com/ScriptReference/Physics.ComputePenetration.html
             // ///////////////////////////
 
-            // // This is how you access information about the terrain from a simulated laser range finder
-            // // It might be wise to use this for error recovery, but do most of the planning before the race clock starts
-            // RaycastHit hit;
-            // float maxRange = 50f;
-            // if (Physics.Raycast(globalPosition + transform.up, transform.TransformDirection(Vector3.forward), out hit, maxRange))
-            // {
-            //     Vector3 closestObstacleInFront = transform.TransformDirection(Vector3.forward) * hit.distance;
-            //     Debug.DrawRay(globalPosition, closestObstacleInFront, Color.yellow);
-            //  //   Debug.Log("Did Hit");
-            // }
-
 
             var globalPosition = transform.position;
             Vector3 localPosition = mapManager.grid.WorldToLocal(transform.position);
@@ -214,6 +182,12 @@ namespace UnityStandardAssets.Vehicles.Car
             Debug.DrawLine(globalPosition, globalNextNode, Color.cyan);
             Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
 
+            PdControllTowardsPosition(globalNextNode);
+        }
+
+        private void PdControllTowardsPosition(Vector3 globalTargetPosition)
+        {
+            Vector3 globalPosition = transform.position;
             Vector3 target_position;
 
             if (driveInCircle) // for the circle option
@@ -224,7 +198,7 @@ namespace UnityStandardAssets.Vehicles.Car
             }
             else // target is next node in path
             {
-                target_position = globalNextNode;
+                target_position = globalTargetPosition;
                 target_velocity = (target_position - globalPosition) / Time.fixedDeltaTime;
             }
 
@@ -245,4 +219,5 @@ namespace UnityStandardAssets.Vehicles.Car
             m_Car.Move(steering, acceleration, acceleration, 0f);
         }
     }
+
 }
