@@ -5,7 +5,7 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 
-namespace UnityStandardAssets.Vehicles.Car
+namespace dubins
 {
     //To keep track of the different paths when debugging
     public enum PathType { RSR, LSL, RSL, LSR, RLR, LRL }

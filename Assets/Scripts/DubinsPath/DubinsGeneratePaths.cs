@@ -5,7 +5,7 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 
-namespace UnityStandardAssets.Vehicles.Car
+namespace dubins
 {
     //Generates Dubins paths
     public class DubinsGeneratePaths

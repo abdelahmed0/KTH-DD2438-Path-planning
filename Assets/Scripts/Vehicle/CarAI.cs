@@ -4,7 +4,7 @@ using UnityEngine;
 using System;
 using UnityStandardAssets.Vehicles.Car.Map;
 using System.Linq;
-
+using dubins;
 
 namespace UnityStandardAssets.Vehicles.Car
 {
@@ -46,24 +46,24 @@ namespace UnityStandardAssets.Vehicles.Car
             currentNodeIdx = 0;
             path = GenerateAStarPath(localStart, localGoal);
 
-            // Draw unsmoothed path
-            Vector3 old_wp = localStart;
-            foreach (var wp in path)
-            {
-                Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.red, 1000f);
-                old_wp = wp;
-            }
+            // // Draw unsmoothed path
+            // Vector3 old_wp = localStart;
+            // foreach (var wp in path)
+            // {
+            //     Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.red, 1000f);
+            //     old_wp = wp;
+            // }
 
             dubinsPathGenerator = new DubinsGeneratePaths();
             path = GenerateSmoothedPath();
 
-            // Draw smoothed path
-            old_wp = localStart;
-            foreach (var wp in path)
-            {
-                Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.white, 1000f);
-                old_wp = wp;
-            }
+            // // Draw smoothed path
+            // old_wp = localStart;
+            // foreach (var wp in path)
+            // {
+            //     Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.white, 1000f);
+            //     old_wp = wp;
+            // }
 
             // var obstacleMap = mapManager.GetObstacleMap();
             // Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;

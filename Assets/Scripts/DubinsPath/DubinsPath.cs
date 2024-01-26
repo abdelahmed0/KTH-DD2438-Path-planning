@@ -5,7 +5,7 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 
-namespace UnityStandardAssets.Vehicles.Car
+namespace dubins
 {
     //Will hold data related to one Dubins path so we can sort them
     public class DubinsPath
