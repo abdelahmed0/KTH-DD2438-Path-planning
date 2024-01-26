@@ -17,8 +17,9 @@ namespace UnityStandardAssets.Vehicles.Car
         float alpha = 0f;
         public Vector3 circleCenter = Vector3.zero;
         private Vector3 target_velocity;
-        public float k_p = 0.1f;
-        public float k_d = 0.2f;
+        public float k_p = 2f;
+        public float k_i = 0.01f;
+        public float k_d = 0.5f;
         public float nodeDistThreshold = 0.6f;
 
         Rigidbody my_rigidbody;
@@ -28,39 +29,87 @@ namespace UnityStandardAssets.Vehicles.Car
         private BoxCollider carCollider;
         private List<Vector3> path;
         private int currentNodeIdx;
+        private float integral = 0f;
+
+        private DubinsGeneratePaths dubinsPathGenerator;
+
         private void Start()
         {
             carCollider = gameObject.transform.Find("Colliders/ColliderBottom").gameObject.GetComponent<BoxCollider>();
-            // get the car controller
             m_Car = GetComponent<CarController>();
             mapManager = FindObjectOfType<GameManager>().mapManager;
             my_rigidbody = GetComponent<Rigidbody>();
 
             Vector3 localStart = mapManager.localStartPosition;
             Vector3 localGoal = mapManager.localGoalPosition;
-
-            Vector3 globalStart = mapManager.grid.LocalToWorld(localStart);
             
-            // TODO: Consider all obstacle free grid cells instead of only roads
-            // Tree rrtTree = new Tree(globalStart);
-            // List<Vector3> rrtPath = GenerateRRTPath(rrtTree.Root, localGoal);
             currentNodeIdx = 0;
             path = GenerateAStarPath(localStart, localGoal);
-            
-            // Plot your path to see if it makes sense
-            // Note that path can only be seen in "Scene" window, not "Game" window
+
+            // Draw unsmoothed path
             Vector3 old_wp = localStart;
+            foreach (var wp in path)
+            {
+                Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.red, 1000f);
+                old_wp = wp;
+            }
+
+            dubinsPathGenerator = new DubinsGeneratePaths();
+            path = GenerateSmoothedPath();
+
+            // Draw smoothed path
+            old_wp = localStart;
             foreach (var wp in path)
             {
                 Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.white, 1000f);
                 old_wp = wp;
             }
+
+            // var obstacleMap = mapManager.GetObstacleMap();
+            // Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
+            // Dictionary<Vector2Int, List<GameObject>> gameObjectData = mapManager.GetObstacleMap().gameGameObjectsPerCell;
+            
+            // for (int i = 0; i < path.Count; ++i)
+            // {
+            //     // FIXME: not doing anything so far
+            //     Vector3 localNode = path[i];
+            //     Vector3 globalNode = mapManager.grid.LocalToWorld(localNode);
+            //     Vector3Int cellNode = mapManager.grid.WorldToCell(globalNode);
+
+            //     if (mapData[new Vector2Int(cellNode.x, cellNode.z)] != ObstacleMap.Traversability.Free)
+            //     {
+            //         // If car would collide at node, move node to closest position to "uncollide"
+            //         foreach (GameObject obstacle in gameObjectData[new Vector2Int(cellNode.x, cellNode.z)])
+            //         {
+            //             bool overlapped = Physics.ComputePenetration(
+            //                 carCollider,
+            //                 globalNode,
+            //                 transform.rotation, // Use global position 
+            //                 obstacle.GetComponent<MeshCollider>(), // Can take any collider and "project" it using position and rotation vectors.
+            //                 obstacle.transform.position,
+            //                 obstacle.transform.rotation,
+            //                 out var direction,
+            //                 out var distance
+            //             );
+
+            //             // 'out's give shortest direction and distance to "uncollide" two objects.
+            //             if (overlapped || distance > 0)
+            //             {
+            //                 globalNode += direction * distance;
+            //                 path[i] = mapManager.grid.WorldToLocal(globalNode);
+            //             }
+            //         }
+            //     }
+            // }
+            
         }
-        
 
         private List<Vector3> GenerateAStarPath(Vector3 localStart, Vector3 localGoal)
         {
             var roadPath = new List<Vector3>();
+
+            var obstacleMap = mapManager.GetObstacleMap();
+            Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
 
             Vector3Int startCell = mapManager.grid.LocalToCell(localStart);
             Vector3Int goalCell = mapManager.grid.LocalToCell(localGoal);
@@ -73,13 +122,13 @@ namespace UnityStandardAssets.Vehicles.Car
             var fScore = new Dictionary<Vector3Int, float>();
 
             openSet.Enqueue(0, startCell);
+
             gScore[startCell] = 0;
-            fScore[startCell] = Vector3.Distance(mapManager.grid.CellToWorld(startCell), mapManager.grid.CellToWorld(goalCell));
+            fScore[startCell] = Vector3.Distance(mapManager.grid.CellToLocal(startCell), mapManager.grid.CellToLocal(goalCell));
 
             while (openSet.Count > 0)
             {
                 var currentCell = openSet.Dequeue().Value;
-                // Debug.DrawLine(mapManager.grid.CellToWorld(current), mapManager.grid.CellToWorld(startCell), Color.red);
 
                 if (currentCell == goalCell)
                 {
@@ -87,7 +136,7 @@ namespace UnityStandardAssets.Vehicles.Car
                     while (currentCell != startCell)
                     {
                         Vector3 current = mapManager.grid.CellToLocal(currentCell);
-                        roadPath.Add(new Vector3(current.x, 0, current.y)); // counteract grids xzy format
+                        roadPath.Add(new Vector3(current.x, 0, current.y));
                         currentCell = parentMap[currentCell];
                     }
                     roadPath.Add(localStart);
@@ -104,17 +153,27 @@ namespace UnityStandardAssets.Vehicles.Car
                         continue;
                     }
 
-                    float tmpGScore = gScore[currentCell] + Vector3.Distance(mapManager.grid.CellToWorld(currentCell), mapManager.grid.CellToWorld(neighbor));
+                    float tmpGScore = gScore[currentCell] + Vector3.Distance(mapManager.grid.CellToLocal(currentCell), mapManager.grid.CellToLocal(neighbor));
 
                     if (!gScore.ContainsKey(neighbor) || tmpGScore < gScore[neighbor])
                     {
                         gScore[neighbor] = tmpGScore;
-                        fScore[neighbor] = gScore[neighbor] + Vector3.Distance(mapManager.grid.CellToWorld(neighbor), mapManager.grid.CellToWorld(goalCell));
+                        float hValue = Vector3.Distance(mapManager.grid.CellToLocal(neighbor), mapManager.grid.CellToLocal(goalCell));
+                        if (mapData[new Vector2Int(neighbor.x, neighbor.z)] == ObstacleMap.Traversability.Partial) // negative reward for partialy traversable cells
+                            hValue += 1f;
+
+                        fScore[neighbor] = gScore[neighbor] + hValue;
                         parentMap[neighbor] = currentCell;
 
                         if (!openSet.Contains(neighbor))
                         {
                             openSet.Enqueue(fScore[neighbor], neighbor);
+
+                            // Debug
+                            // Vector3 neighborLocal = mapManager.grid.CellToLocal(neighbor);
+                            // Debug.DrawLine(mapManager.grid.LocalToWorld(localStart), 
+                            //     mapManager.grid.LocalToWorld(new Vector3(neighborLocal.x, 0, neighborLocal.y)), 
+                            //     Color.white, 1000f);
                         }
                     }
                 }
@@ -123,52 +182,47 @@ namespace UnityStandardAssets.Vehicles.Car
             return roadPath;
         }
 
-
-        private List<Vector3> GenerateDFSPath(Vector3 localStart, Vector3 localGoal)
+        private List<Vector3> GenerateSmoothedPath()
         {
-            var roadPath = new List<Vector3>();
+            // Generate smooth path by creating a dubins path between all path nodes 
 
-            Vector3Int startCell = mapManager.grid.LocalToCell(localStart);
-            Vector3Int goalCell = mapManager.grid.LocalToCell(localGoal);
-
-            // Perform DFS to find a path through the road network
-            var visited = new HashSet<Vector3Int>();
-            var stack = new Stack<Vector3Int>();
-            var parentMap = new Dictionary<Vector3Int, Vector3Int>();
-
-            stack.Push(startCell);
-            visited.Add(startCell);
-
-            while (stack.Count > 0)
+            var smoothedPath = new List<Vector3>();
+            for (int i = 0; i < path.Count-2; ++i)
             {
-                Vector3Int currentCell = stack.Pop();
+                Vector3 currentNode = mapManager.grid.LocalToWorld(path[i]);
+                Vector3 nextNode = mapManager.grid.LocalToWorld(path[i+1]);
+                Vector3 nextNextNode = mapManager.grid.LocalToWorld(path[i+2]);
+                
+                Vector3 startDir = nextNode - currentNode;
+                Vector3 goalDir = nextNextNode - nextNode;
 
-                if (currentCell == goalCell)
+                Quaternion startRotation = Quaternion.LookRotation(startDir);
+                Quaternion goalRotation = Quaternion.LookRotation(goalDir);
+
+                // Convert quaternions to Euler angles in degrees
+                float startHeading = startRotation.eulerAngles.y * Mathf.Deg2Rad;
+                float goalHeading = goalRotation.eulerAngles.y * Mathf.Deg2Rad;
+
+                List<DubinsPath> pathDataList = dubinsPathGenerator.GetAllDubinsPaths(
+                    currentNode,
+                    startHeading,
+                    nextNode,
+                    goalHeading);
+
+                if (pathDataList.Count > 0)
                 {
-                    // Reconstruct the path if the goal is reached
-                    while (currentCell != startCell)
+                    // TODO: Check for collisions and choose path that does not collide
+                    DubinsPath pathData = pathDataList[0];
+                    List<Vector3> pathCoordinates = pathData.pathCoordinates;
+
+                    foreach (Vector3 pathCoord in pathCoordinates)
                     {
-                        Vector3 current = mapManager.grid.CellToLocal(currentCell);
-                        roadPath.Add(new Vector3(current.x, current.z, current.y)); // counteract grids xzy format
-                        currentCell = parentMap[currentCell];
-                    }
-                    roadPath.Add(localStart);
-                    roadPath.Reverse();
-                    break;
-                }
-                foreach (Vector3Int neighbor in GetNeighborCells(currentCell))
-                {
-                    if (!visited.Contains(neighbor))
-                    {
-                        // Debug.DrawLine(mapManager.grid.LocalToWorld(current), mapManager.grid.LocalToWorld(neighbor), Color.red, 1000f);
-                        stack.Push(neighbor);
-                        visited.Add(neighbor);
-                        parentMap[neighbor] = currentCell;
+                        smoothedPath.Add(mapManager.grid.WorldToLocal(pathCoord));
                     }
                 }
             }
-
-            return roadPath;
+            smoothedPath.Add(path[path.Count-1]);
+            return smoothedPath; // smoothed path with local coordinates
         }
 
         private IEnumerable<Vector3Int> GetNeighborCells(Vector3Int cell)
@@ -176,9 +230,9 @@ namespace UnityStandardAssets.Vehicles.Car
             var obstacleMap = mapManager.GetObstacleMap();
             Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
 
-            // Define offsets for horizontal and vertical neighbors
-            int[] xOffsets = { -1, 0, 1, 0 };
-            int[] zOffsets = { 0, 1, 0, -1 };
+            // First four are the non-diagonal neighbor offsets
+            int[] xOffsets = { -1, 0, 1, 0, 1, 1, -1, -1 };
+            int[] zOffsets = { 0, 1, 0, -1, 1, -1, 1, -1 };
 
             for (int i = 0; i < xOffsets.Length; i++)
             {
@@ -190,87 +244,72 @@ namespace UnityStandardAssets.Vehicles.Car
                 neighbor.z += z_offset;
                 var neighbor2d = new Vector2Int(neighbor.x, neighbor.z);
 
-                if (mapData.ContainsKey(neighbor2d) && mapData[neighbor2d] == ObstacleMap.Traversability.Free)
+                if (mapData.ContainsKey(neighbor2d) && mapData[neighbor2d] != ObstacleMap.Traversability.Blocked)
                 {
                     yield return neighbor;
                 }
             }
         }
 
-        // private IEnumerable<Vector3Int> GetNeighborCells(Vector3Int cell)
-        // {
-        //     // Takes diagonal neighbors into consideration as well
-        //     var obstacleMap = mapManager.GetObstacleMap();
-        //     Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
-            
-        //     for (int x_offset = -1; x_offset < 2; ++x_offset)
-        //     {
-        //         for (int z_offset = -1; z_offset < 2; ++z_offset)
-        //         {
-        //             Vector3Int neighbor = cell + new Vector3Int(x_offset, 0, z_offset);
-
-        //             Vector2Int neighbor2d = new(neighbor.x, neighbor.z);
-
-        //             if (mapData.ContainsKey(neighbor2d) 
-        //                 && mapData[neighbor2d] == ObstacleMap.Traversability.Free)
-        //             {
-        //                 yield return neighbor;
-        //             }
-        //         }
-        //     }
-        // }
-
         private void FixedUpdate()
         {
-            // // How to calculate if a physics collider overlaps another.
-            // var exampleObstacle = mapManager.GetObstacleMap().obstacleObjects[0];
-            // bool overlapped = Physics.ComputePenetration(
-            //     carCollider,
-            //     globalPosition,
-            //     transform.rotation, // Use global position 
-            //     exampleObstacle.GetComponent<MeshCollider>(), // Can take any collider and "project" it using position and rotation vectors.
-            //     exampleObstacle.transform.position,
-            //     exampleObstacle.transform.rotation,
-            //     out var direction,
-            //     out var distance
-            // );
-            // // 'out's give shortest direction and distance to "uncollide" two objects.
-            // if (overlapped || distance > 0)
-            // {
-            //     // Means collider inside another
-            // }
-            // // For more details https:docs.unity3d.com/ScriptReference/Physics.ComputePenetration.html
-            // ///////////////////////////
-
+            // TODO: Implement backing up of car if stuck (velocity near zero and/or colliding with object)
+            if (path.Count == 0)
+            {
+                Debug.LogWarning("Path empty!");
+                return;
+            }
 
             var globalPosition = transform.position;
             Vector3 localPosition = mapManager.grid.WorldToLocal(transform.position);
+
             // var obstacleMap = mapManager.GetObstacleMap();
-            // Debug.Log(obstacleMap.IsLocalPointTraversable(localPosition));
+            // Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
+            // Dictionary<Vector2Int, List<GameObject>> gameObjectData = mapManager.GetObstacleMap().gameGameObjectsPerCell;
+            
+            Vector3 localNextNode = path.ElementAt(currentNodeIdx);
+            Vector3 globalNextNode = mapManager.grid.LocalToWorld(localNextNode);
+            // Vector3Int cellNextNode = mapManager.grid.WorldToCell(globalNextNode);
 
-            // Execute your path here
-            if (path.Count() == 0)
-            {
-                Debug.LogWarning("Path empty!");
-            }
-            else
-            {
-                Vector3 localNextNode = path.ElementAt(currentNodeIdx);
-                Vector3 globalNextNode = mapManager.grid.LocalToWorld(localNextNode);
+            // if (mapData[new Vector2Int(cellNextNode.x, cellNextNode.z)] != ObstacleMap.Traversability.Free)
+            // {
+            //     // If car would collide at node, move node to closest position to "uncollide"
+            //     foreach (GameObject obstacle in gameObjectData[new Vector2Int(cellNextNode.x, cellNextNode.z)])
+            //     {
+                    
+            //         bool overlapped = Physics.ComputePenetration(
+            //             carCollider,
+            //             globalNextNode,
+            //             transform.rotation, // Use global position 
+            //             obstacle.GetComponent<MeshCollider>(), // Can take any collider and "project" it using position and rotation vectors.
+            //             obstacle.transform.position,
+            //             obstacle.transform.rotation,
+            //             out var direction,
+            //             out var distance
+            //         );
 
-                Debug.DrawLine(globalPosition, globalNextNode, Color.cyan);
-                PdControllTowardsPosition(globalNextNode);
-                // If car is at pathNode, update pathNodeEnumerator
-                if (currentNodeIdx < path.Count() - 1 && Vector3.Distance(mapManager.grid.WorldToLocal(globalPosition), localNextNode) < nodeDistThreshold)
-                {
-                    currentNodeIdx++;
-                }
+            //         // 'out's give shortest direction and distance to "uncollide" two objects.
+            //         if (overlapped || distance > 0)
+            //         {
+            //             globalNextNode += direction * distance;
+            //             localNextNode = mapManager.grid.WorldToLocal(globalNextNode);
+            //             path[currentNodeIdx] = localNextNode;
+            //         }
+            //     }
+            // }
+
+            Debug.DrawLine(globalPosition, globalNextNode, Color.cyan);
+            PidControllTowardsPosition(globalNextNode);
+            // If car is at pathNode, update pathNodeEnumerator
+            if (currentNodeIdx < path.Count - 1 && Vector3.Distance(mapManager.grid.WorldToLocal(globalPosition), localNextNode) < nodeDistThreshold)
+            {
+                currentNodeIdx++;
             }
 
             Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
         }
 
-        private void PdControllTowardsPosition(Vector3 globalTargetPosition)
+        private void PidControllTowardsPosition(Vector3 globalTargetPosition)
         {
             Vector3 globalPosition = transform.position;
             Vector3 target_position;
@@ -290,7 +329,13 @@ namespace UnityStandardAssets.Vehicles.Car
             // a PD-controller to get desired acceleration from errors in position and velocity
             Vector3 position_error = target_position - transform.position;
             Vector3 velocity_error = target_velocity - my_rigidbody.velocity;
-            Vector3 desired_acceleration = k_p * position_error + k_d * velocity_error;
+
+            Vector3 proportional = k_p * position_error;
+            integral += Time.fixedDeltaTime * position_error.magnitude;
+            Vector3 integralTerm = k_i * integral * position_error.normalized;
+            Vector3 derivativeTerm = k_d * velocity_error;
+
+            Vector3 desired_acceleration = proportional + integralTerm + derivativeTerm;
 
             float steering = Vector3.Dot(desired_acceleration, transform.right);
             float acceleration = Vector3.Dot(desired_acceleration, transform.forward);
@@ -307,7 +352,7 @@ namespace UnityStandardAssets.Vehicles.Car
 
     public class PriorityQueue<TPriority, TValue>
     {
-        private List<Node> elements = new List<Node>();
+        private readonly List<Node> elements = new();
 
         public int Count => elements.Count;
 
@@ -354,9 +399,7 @@ namespace UnityStandardAssets.Vehicles.Car
                 if (Comparer<TPriority>.Default.Compare(elements[childIndex].Priority, elements[index].Priority) >= 0)
                     break;
 
-                var tmp = elements[index];
-                elements[index] = elements[childIndex];
-                elements[childIndex] = tmp;
+                (elements[childIndex], elements[index]) = (elements[index], elements[childIndex]);
                 index = childIndex;
             }
 
