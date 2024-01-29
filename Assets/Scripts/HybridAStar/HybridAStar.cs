@@ -12,7 +12,7 @@ namespace aStar
     {
         // Hybrid A-Star implementation as described in paper
         // "Application of Hybrid A* to an Autonomous Mobile Robot for Path Planning in Unstructured Outdoor Environments"
-        private const float goalThreshold = 0.5f;
+        private const float goalThreshold = 0.4f;
         private readonly float stepDistance;
         private readonly float globalStepDistance;
         private readonly float startingAngleRadians;
@@ -60,6 +60,7 @@ namespace aStar
             // Perform Hybrid-A* to find a path 
             var openSet = new PriorityQueue();
             var closedSet = new HashSet<AStarNode>();
+            // var closedCells = new HashSet<Vector3Int>();
 
             var startNode = new AStarNode(localStart, startingAngleRadians, null, grid)
             {
@@ -73,6 +74,7 @@ namespace aStar
                 steps++;
                 var currentNode = openSet.Dequeue().Value;
                 closedSet.Add(currentNode);
+                // closedCells.Add(grid.LocalToCell(currentNode.LocalPosition));
 
                 if (GoalReached(currentNode.LocalPosition, localGoal))
                 {
@@ -86,6 +88,7 @@ namespace aStar
                 foreach (AStarNode nextNode in GenerateChildNodes(currentNode))
                 {
                     if (closedSet.Contains(nextNode))
+                    // if (closedCells.Contains(grid.LocalToCell(nextNode.LocalPosition)))
                     {
                         continue;
                     }
@@ -96,7 +99,7 @@ namespace aStar
 
                     if (!IsInMapBounds(nextNode.LocalPosition)
                         // || obstacleMap.IsLocalPointTraversable(nextNode.LocalPosition) == ObstacleMap.Traversability.Blocked
-                        || Physics.Raycast(grid.LocalToWorld(new Vector3(currentNode.LocalPosition.x, 0.01f, currentNode.LocalPosition.z)),
+                        || Physics.Raycast(grid.LocalToWorld(new Vector3(currentNode.LocalPosition.x, 0.1f, currentNode.LocalPosition.z)),
                             AngleToDirection(currentNode.angle), globalStepDistance)) // FIXME does not recognize blocked blocks
                     {
                         // Debug
@@ -104,6 +107,7 @@ namespace aStar
                             nextGlobal, 
                             Color.red, 1000f);
                         closedSet.Add(nextNode);
+                        // closedCells.Add(grid.LocalToCell(nextNode.LocalPosition));
                         continue;
                     }
                     // Debug
@@ -127,9 +131,9 @@ namespace aStar
             {
                 var nextNode = parent.Copy();
 
-                float turningAngle = steeringToTurningAngle(steeringAngle);
+                float turningAngle = SteeringToTurningAngle(steeringAngle);
                 Debug.Log("Turning angle: "+ turningAngle * Mathf.Rad2Deg);
-                if (turningAngle > 0.001f)
+                if (Mathf.Abs(turningAngle) > 0.001f)
                 {
                     float turningRadius = stepDistance / turningAngle;
 
@@ -162,7 +166,7 @@ namespace aStar
             }
         }
 
-        private float steeringToTurningAngle(float steeringAngle)
+        private float SteeringToTurningAngle(float steeringAngle)
         {
             return stepDistance / carLength * Mathf.Tan(steeringAngle);
         }
@@ -229,7 +233,7 @@ namespace aStar
 
             AStarNode otherNode = (AStarNode)obj;
             return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition))
-                    && angle == otherNode.angle;
+                    && Mathf.Abs(angle-otherNode.angle) < 2.5f; // TODO: export; This is angleResolution / 2 for angleResolution = 5f
         }
 
         public override int GetHashCode()
