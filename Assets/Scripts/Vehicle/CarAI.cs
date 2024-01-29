@@ -5,6 +5,8 @@ using System;
 using UnityStandardAssets.Vehicles.Car.Map;
 using System.Linq;
 using dubins;
+using UnityEngine.UIElements;
+using aStar;
 
 namespace UnityStandardAssets.Vehicles.Car
 {
@@ -27,7 +29,7 @@ namespace UnityStandardAssets.Vehicles.Car
         private CarController m_Car; // the car controller we want to use
         private MapManager mapManager;
         private BoxCollider carCollider;
-        private List<Vector3> path;
+        private List<Vector3> path = new();
         private int currentNodeIdx;
         private float integral = 0f;
 
@@ -44,18 +46,24 @@ namespace UnityStandardAssets.Vehicles.Car
             Vector3 localGoal = mapManager.localGoalPosition;
             
             currentNodeIdx = 0;
-            path = GenerateAStarPath(localStart, localGoal);
+            HybridAStarGenerator pathFinder = new(transform.eulerAngles.y, mapManager.grid, mapManager.GetObstacleMap(), m_Car, carCollider);
+            List<AStarNode> nodePath = pathFinder.GeneratePath(localStart, localGoal);
+            
+            foreach (var node in nodePath)
+            {
+                path.Add(node.LocalPosition);
+            }
 
-            // // Draw unsmoothed path
-            // Vector3 old_wp = localStart;
-            // foreach (var wp in path)
-            // {
-            //     Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.red, 1000f);
-            //     old_wp = wp;
-            // }
+            // Draw unsmoothed path
+            Vector3 old_wp = localStart;
+            foreach (var wp in path)
+            {
+                Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.magenta, 1000f);
+                old_wp = wp;
+            }
 
-            dubinsPathGenerator = new DubinsGeneratePaths();
-            path = GenerateSmoothedPath();
+            // dubinsPathGenerator = new DubinsGeneratePaths();
+            // path = GenerateSmoothedPath();
 
             // // Draw smoothed path
             // old_wp = localStart;
@@ -102,7 +110,7 @@ namespace UnityStandardAssets.Vehicles.Car
             //     }
             // }
             
-        }
+        }        
 
         private List<Vector3> GenerateAStarPath(Vector3 localStart, Vector3 localGoal)
         {
@@ -135,7 +143,7 @@ namespace UnityStandardAssets.Vehicles.Car
                      // Reconstruct the path if the goal is reached
                     while (currentCell != startCell)
                     {
-                        Vector3 current = mapManager.grid.CellToLocal(currentCell);
+                        Vector3 current = mapManager.grid.GetCellCenterLocal(currentCell);
                         roadPath.Add(new Vector3(current.x, 0, current.y));
                         currentCell = parentMap[currentCell];
                     }
@@ -256,7 +264,6 @@ namespace UnityStandardAssets.Vehicles.Car
             // TODO: Implement backing up of car if stuck (velocity near zero and/or colliding with object)
             if (path.Count == 0)
             {
-                Debug.LogWarning("Path empty!");
                 return;
             }
 
@@ -298,7 +305,6 @@ namespace UnityStandardAssets.Vehicles.Car
             //     }
             // }
 
-            Debug.DrawLine(globalPosition, globalNextNode, Color.cyan);
             PidControllTowardsPosition(globalNextNode);
             // If car is at pathNode, update pathNodeEnumerator
             if (currentNodeIdx < path.Count - 1 && Vector3.Distance(mapManager.grid.WorldToLocal(globalPosition), localNextNode) < nodeDistThreshold)
@@ -345,7 +351,7 @@ namespace UnityStandardAssets.Vehicles.Car
             Debug.DrawLine(globalPosition, globalPosition + desired_acceleration, Color.black);
 
             // this is how you control the car
-            Debug.Log("Steering:" + steering + " Acceleration:" + acceleration);
+            // Debug.Log("Steering:" + steering + " Acceleration:" + acceleration);
             m_Car.Move(steering, acceleration, acceleration, 0f);
         }
     }
