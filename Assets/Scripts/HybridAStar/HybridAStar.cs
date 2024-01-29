@@ -103,15 +103,14 @@ namespace aStar
 
                     if (!IsReachable(currentNode, nextNode)) // FIXME does not recognize blocked blocks
                     {
-                        // Debug
-                        Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                            nextGlobal, 
-                            Color.red, 1000f);
-                        closedSet.Add(nextNode);
+                        // // Debug
+                        // Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                        //     nextGlobal, 
+                        //     Color.red, 1000f);
+                        // closedSet.Add(nextNode);
                         // closedCells.Add(grid.LocalToCell(nextNode.LocalPosition));
                         continue;
                     }
-                    // Debug
                     Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
                         nextGlobal, 
                         Color.green, 1000f);
@@ -122,7 +121,7 @@ namespace aStar
                 }
             }
 
-            Debug.Log("No path found");
+            Debug.LogWarning("No path found");
             return new List<AStarNode>();
         }
 
@@ -171,7 +170,7 @@ namespace aStar
         { 
             var currentGlobal = current.GetGlobalPosition(grid);
             var nextGlobal = next.GetGlobalPosition(grid);
-            // // Node not within grid
+            // // Node not within grid TODO: remove?
             // var local = Vector3Int.FloorToInt(next.LocalPosition);
             // Debug.Log("Local pos: " + local);
             // if (!obstacleMap.mapBounds.Contains(local)) 
@@ -181,33 +180,18 @@ namespace aStar
             var nextCell = grid.LocalToCell(next.LocalPosition);
             if (traversabilityPerCell[new Vector2Int(nextCell.x, nextCell.y)] == ObstacleMap.Traversability.Blocked)
                 return false;
-
-            var angleRad = Mathf.Atan2(nextGlobal.z - currentGlobal.z, nextGlobal.x - currentGlobal.x);
-            var angleDeg = angleRad * Mathf.Rad2Deg;
-
-            var distance = globalStepDistance; //Vector3.Distance(currentGlobal, nextGlobal);
-            Debug.Log("AngleDeg: " + angleDeg);
-            // Check if path to node is blocked
             
+            // Check if path to node is blocked
             Vector3 direction = (nextGlobal - currentGlobal).normalized;
             var orientation = Quaternion.FromToRotation(Vector3.forward, direction);
 
             bool hit = Physics.BoxCast(currentGlobal,
-                                        carCollider.transform.localScale / 2f,
+                                        carCollider.transform.localScale / 1.5f, // halfExtents, so usually 2 but bigger collider as error margin 
                                         direction, 
                                         out var hitInfo,
                                         orientation,
-                                        distance);
-            if (!hit)
-                return true;
-            ExtDebug.DrawBoxCastBox(currentGlobal,
-                                    carCollider.transform.localScale / 2f,
-                                    direction,
-                                    orientation,
-                                    hitInfo.distance,
-                                    Color.blue);
-                                        
-            return false;
+                                        globalStepDistance);
+            return !hit;
     }
 
         private float SteeringToTurningAngle(float steeringAngle)
@@ -256,7 +240,7 @@ namespace aStar
 
             AStarNode otherNode = (AStarNode)obj;
             return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition))
-                    && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 10f; // TODO: export; For angle resolution, multiply value by two
+                    && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 10f; // TODO: export; For angle resolution, multiply value by two TODO: correct to use steering angle?
         }
 
         public override int GetHashCode()
