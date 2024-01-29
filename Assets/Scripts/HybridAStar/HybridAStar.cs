@@ -18,6 +18,7 @@ namespace aStar
         private readonly float startingAngleRadians;
         private readonly Grid grid;
         private readonly ObstacleMap obstacleMap;
+        private Dictionary<Vector2Int, ObstacleMap.Traversability> traversabilityPerCell;
         private readonly CarController car;
         private readonly BoxCollider carCollider;
         private readonly float carLength;
@@ -28,12 +29,17 @@ namespace aStar
 
         public HybridAStarGenerator(float startingAngle, Grid grid, ObstacleMap obstacleMap, CarController car, BoxCollider carCollider)
         {
-            startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad;
+            startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad; // TODO: understand why starting angle is rotated
+
+            Debug.Log("Starting angle: " + startingAngle);
             this.grid = grid;
             this.obstacleMap = obstacleMap;
+            traversabilityPerCell = obstacleMap.traversabilityPerCell;
             this.car = car;
             this.carCollider = carCollider;
-            this.carLength = grid.WorldToLocal(carCollider.transform.localScale).z;
+            carLength = grid.WorldToLocal(carCollider.transform.localScale).z;
+            Debug.Log("Collider size: " + grid.WorldToLocal(carCollider.size));
+            Debug.Log("Map bounds: " + obstacleMap.mapBounds);
 
             // Incorporate cellSize and cellGap to prevent steps from landing in the same cell they started in
             Vector3 cellSize = grid.cellSize;
@@ -94,13 +100,8 @@ namespace aStar
                     }
 
                     Vector3 nextGlobal = grid.LocalToWorld(nextNode.LocalPosition);
-                    
-                    Vector3Int nextCell = grid.LocalToCell(nextNode.LocalPosition);
 
-                    if (!IsInMapBounds(nextNode.LocalPosition)
-                        // || obstacleMap.IsLocalPointTraversable(nextNode.LocalPosition) == ObstacleMap.Traversability.Blocked
-                        || Physics.Raycast(grid.LocalToWorld(new Vector3(currentNode.LocalPosition.x, 0.1f, currentNode.LocalPosition.z)),
-                            AngleToDirection(currentNode.angle), globalStepDistance)) // FIXME does not recognize blocked blocks
+                    if (!IsReachable(currentNode, nextNode)) // FIXME does not recognize blocked blocks
                     {
                         // Debug
                         Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
@@ -132,7 +133,7 @@ namespace aStar
                 var nextNode = parent.Copy();
 
                 float turningAngle = SteeringToTurningAngle(steeringAngle);
-                Debug.Log("Turning angle: "+ turningAngle * Mathf.Rad2Deg);
+                // Debug.Log("Turning angle: "+ turningAngle * Mathf.Rad2Deg);
                 if (Mathf.Abs(turningAngle) > 0.001f)
                 {
                     float turningRadius = stepDistance / turningAngle;
@@ -146,7 +147,7 @@ namespace aStar
                     float z = cZ - Mathf.Cos(parent.angle + turningAngle) * turningRadius;
     
                     nextNode.angle = (nextNode.angle + turningAngle) % (2 * Mathf.PI);
-                    Debug.Log("Acc turning angle: " + nextNode.angle * Mathf.Rad2Deg);
+                    // Debug.Log("Acc turning angle: " + nextNode.angle * Mathf.Rad2Deg);
                     
                     nextNode.LocalPosition = new Vector3(x, nextNode.LocalPosition.y, z);
                 } 
@@ -166,6 +167,49 @@ namespace aStar
             }
         }
 
+        private bool IsReachable(AStarNode current, AStarNode next)
+        { 
+            var currentGlobal = current.GetGlobalPosition(grid);
+            var nextGlobal = next.GetGlobalPosition(grid);
+            // // Node not within grid
+            // var local = Vector3Int.FloorToInt(next.LocalPosition);
+            // Debug.Log("Local pos: " + local);
+            // if (!obstacleMap.mapBounds.Contains(local)) 
+            //     return false;
+                                        
+            // Node in blocked cell
+            var nextCell = grid.LocalToCell(next.LocalPosition);
+            if (traversabilityPerCell[new Vector2Int(nextCell.x, nextCell.y)] == ObstacleMap.Traversability.Blocked)
+                return false;
+
+            var angleRad = Mathf.Atan2(nextGlobal.z - currentGlobal.z, nextGlobal.x - currentGlobal.x);
+            var angleDeg = angleRad * Mathf.Rad2Deg;
+
+            var distance = globalStepDistance; //Vector3.Distance(currentGlobal, nextGlobal);
+            Debug.Log("AngleDeg: " + angleDeg);
+            // Check if path to node is blocked
+            
+            Vector3 direction = (nextGlobal - currentGlobal).normalized;
+            var orientation = Quaternion.FromToRotation(Vector3.forward, direction);
+
+            bool hit = Physics.BoxCast(currentGlobal,
+                                        carCollider.transform.localScale / 2f,
+                                        direction, 
+                                        out var hitInfo,
+                                        orientation,
+                                        distance);
+            if (!hit)
+                return true;
+            ExtDebug.DrawBoxCastBox(currentGlobal,
+                                    carCollider.transform.localScale / 2f,
+                                    direction,
+                                    orientation,
+                                    hitInfo.distance,
+                                    Color.blue);
+                                        
+            return false;
+    }
+
         private float SteeringToTurningAngle(float steeringAngle)
         {
             return stepDistance / carLength * Mathf.Tan(steeringAngle);
@@ -173,34 +217,13 @@ namespace aStar
 
         private float Heuristic(Vector3 localPosition)
         {
+            // TODO: better heuristic
             return Vector3.Distance(localPosition, localGoal);
         }
 
         private bool GoalReached(Vector3 postion, Vector3 goalPosition)
         {
             return Vector3.Distance(postion, goalPosition) < goalThreshold;
-        }
-
-        private bool IsInMapBounds(Vector3 localPosition)
-        {
-            return obstacleMap.mapBounds.Contains(Vector3Int.RoundToInt(localPosition)); 
-        }
-
-        public float DirectionToAngle(Vector3 direction)
-        {
-            return Vector3.Angle(Vector3.zero, direction) * Mathf.Deg2Rad;
-            // // Convert quaternions to Euler angles in degrees
-            // Quaternion rotation = Quaternion.LookRotation(direction);
-            // return rotation.eulerAngles.y * Mathf.Deg2Rad;
-        }
-
-        public Vector3 AngleToDirection(float angle)
-        {
-            // Convert angle in radians to direction
-            Quaternion rotation = Quaternion.Euler(0, angle * Mathf.Rad2Deg, 0);
-            Vector3 rotatedDirection = rotation * Vector3.forward;
-            
-            return rotatedDirection; 
         }
     }
 
@@ -233,7 +256,7 @@ namespace aStar
 
             AStarNode otherNode = (AStarNode)obj;
             return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition))
-                    && Mathf.Abs(angle-otherNode.angle) < 2.5f; // TODO: export; This is angleResolution / 2 for angleResolution = 5f
+                    && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 10f; // TODO: export; For angle resolution, multiply value by two
         }
 
         public override int GetHashCode()
