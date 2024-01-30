@@ -18,7 +18,7 @@ namespace UnityStandardAssets.Vehicles.Car.Map
 
         public ObstacleMap(List<GameObject> obstacleObjects, Grid grid)
         {
-            if (grid.cellSize.x == 0 || grid.cellSize.z == 0) throw new ArgumentException("Invalid Grid size. Cannot be 0!");
+            if (grid.cellSize.x == 0 || grid.cellSize.y == 0) throw new ArgumentException("Invalid Grid size. Cannot be 0!");
 
             this.grid = grid;
             this.obstacleObjects = obstacleObjects;
@@ -31,8 +31,8 @@ namespace UnityStandardAssets.Vehicles.Car.Map
 
             mapBoundsHelper = InverseTransformBounds(grid.transform, mapBoundsHelper);
             mapBounds = new BoundsInt(
-                Vector3Int.CeilToInt(new Vector3(mapBoundsHelper.min.x / grid.cellSize.x, 0, mapBoundsHelper.min.z / grid.cellSize.z)),
-                Vector3Int.FloorToInt(new Vector3(mapBoundsHelper.size.x / grid.cellSize.x, 1, mapBoundsHelper.size.z / grid.cellSize.z))
+                Vector3Int.CeilToInt(new Vector3(mapBoundsHelper.min.x / grid.cellSize.x, 0, mapBoundsHelper.min.z / grid.cellSize.y)),
+                Vector3Int.FloorToInt(new Vector3(mapBoundsHelper.size.x / grid.cellSize.x, 1, mapBoundsHelper.size.z / grid.cellSize.y))
             );
 
             (gameGameObjectsPerCell, traversabilityPerCell) = GenerateMapData(obstacleObjects);
@@ -79,13 +79,13 @@ namespace UnityStandardAssets.Vehicles.Car.Map
                 if (gameObject.name.Contains("block"))
                 {
                     boundsInt = new BoundsInt(
-                        Vector3Int.CeilToInt(new Vector3(bounds.min.x / grid.cellSize.x, 0, bounds.min.z / grid.cellSize.z)),
-                        Vector3Int.FloorToInt(new Vector3(bounds.size.x / grid.cellSize.x, 1, bounds.size.z / grid.cellSize.z)));
+                        Vector3Int.CeilToInt(new Vector3(bounds.min.x / grid.cellSize.x, 0, bounds.min.z / grid.cellSize.y)),
+                        Vector3Int.FloorToInt(new Vector3(bounds.size.x / grid.cellSize.x, 1, bounds.size.z / grid.cellSize.y)));
                 }
                 else
                 {
-                    bounds.min = Vector3Int.FloorToInt(new Vector3(bounds.min.x / grid.cellSize.x, 0, bounds.min.z / grid.cellSize.z));
-                    bounds.max = Vector3Int.CeilToInt(new Vector3(bounds.max.x / grid.cellSize.x, 1, bounds.max.z / grid.cellSize.z));
+                    bounds.min = Vector3Int.FloorToInt(new Vector3(bounds.min.x / grid.cellSize.x, 0, bounds.min.z / grid.cellSize.y));
+                    bounds.max = Vector3Int.CeilToInt(new Vector3(bounds.max.x / grid.cellSize.x, 1, bounds.max.z / grid.cellSize.y));
                     // Resize bounds first, then take min max.
                     
                     boundsInt = new BoundsInt(Vector3Int.FloorToInt(bounds.min), Vector3Int.CeilToInt(bounds.size));

@@ -44284,7 +44284,7 @@ MonoBehaviour:
   localStartPosition: {x: 22, y: 0.2, z: 21}
   localGoalPosition: {x: 9.5, y: 0, z: 20.5}
   fileName: terrainA
-  DrawObstacleMap: 0
+  DrawObstacleMap: 1
 --- !u!4 &4254003285539509572
 Transform:
   m_ObjectHideFlags: 0
@@ -44391,7 +44391,7 @@ Grid:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1103417788301185068}
   m_Enabled: 1
-  m_CellSize: {x: 1, y: 1, z: 1}
+  m_CellSize: {x: 0.5, y: 0.5, z: 0.5}
   m_CellGap: {x: 0, y: 0, z: 0}
   m_CellLayout: 0
   m_CellSwizzle: 1
