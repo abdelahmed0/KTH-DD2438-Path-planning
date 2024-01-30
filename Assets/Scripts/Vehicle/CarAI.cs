@@ -72,43 +72,6 @@ namespace UnityStandardAssets.Vehicles.Car
             //     Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.white, 1000f);
             //     old_wp = wp;
             // }
-
-            // var obstacleMap = mapManager.GetObstacleMap();
-            // Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
-            // Dictionary<Vector2Int, List<GameObject>> gameObjectData = mapManager.GetObstacleMap().gameGameObjectsPerCell;
-            
-            // for (int i = 0; i < path.Count; ++i)
-            // {
-            //     // FIXME: not doing anything so far
-            //     Vector3 localNode = path[i];
-            //     Vector3 globalNode = mapManager.grid.LocalToWorld(localNode);
-            //     Vector3Int cellNode = mapManager.grid.WorldToCell(globalNode);
-
-            //     if (mapData[new Vector2Int(cellNode.x, cellNode.z)] != ObstacleMap.Traversability.Free)
-            //     {
-            //         // If car would collide at node, move node to closest position to "uncollide"
-            //         foreach (GameObject obstacle in gameObjectData[new Vector2Int(cellNode.x, cellNode.z)])
-            //         {
-            //             bool overlapped = Physics.ComputePenetration(
-            //                 carCollider,
-            //                 globalNode,
-            //                 transform.rotation, // Use global position 
-            //                 obstacle.GetComponent<MeshCollider>(), // Can take any collider and "project" it using position and rotation vectors.
-            //                 obstacle.transform.position,
-            //                 obstacle.transform.rotation,
-            //                 out var direction,
-            //                 out var distance
-            //             );
-
-            //             // 'out's give shortest direction and distance to "uncollide" two objects.
-            //             if (overlapped || distance > 0)
-            //             {
-            //                 globalNode += direction * distance;
-            //                 path[i] = mapManager.grid.WorldToLocal(globalNode);
-            //             }
-            //         }
-            //     }
-            // }
             
         }        
 
@@ -269,41 +232,10 @@ namespace UnityStandardAssets.Vehicles.Car
 
             var globalPosition = transform.position;
             Vector3 localPosition = mapManager.grid.WorldToLocal(transform.position);
-
-            // var obstacleMap = mapManager.GetObstacleMap();
-            // Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
-            // Dictionary<Vector2Int, List<GameObject>> gameObjectData = mapManager.GetObstacleMap().gameGameObjectsPerCell;
             
             Vector3 localNextNode = path.ElementAt(currentNodeIdx);
             Vector3 globalNextNode = mapManager.grid.LocalToWorld(localNextNode);
-            // Vector3Int cellNextNode = mapManager.grid.WorldToCell(globalNextNode);
 
-            // if (mapData[new Vector2Int(cellNextNode.x, cellNextNode.z)] != ObstacleMap.Traversability.Free)
-            // {
-            //     // If car would collide at node, move node to closest position to "uncollide"
-            //     foreach (GameObject obstacle in gameObjectData[new Vector2Int(cellNextNode.x, cellNextNode.z)])
-            //     {
-                    
-            //         bool overlapped = Physics.ComputePenetration(
-            //             carCollider,
-            //             globalNextNode,
-            //             transform.rotation, // Use global position 
-            //             obstacle.GetComponent<MeshCollider>(), // Can take any collider and "project" it using position and rotation vectors.
-            //             obstacle.transform.position,
-            //             obstacle.transform.rotation,
-            //             out var direction,
-            //             out var distance
-            //         );
-
-            //         // 'out's give shortest direction and distance to "uncollide" two objects.
-            //         if (overlapped || distance > 0)
-            //         {
-            //             globalNextNode += direction * distance;
-            //             localNextNode = mapManager.grid.WorldToLocal(globalNextNode);
-            //             path[currentNodeIdx] = localNextNode;
-            //         }
-            //     }
-            // }
 
             PidControllTowardsPosition(globalNextNode);
             // If car is at pathNode, update pathNodeEnumerator

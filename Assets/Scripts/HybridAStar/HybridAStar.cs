@@ -12,13 +12,15 @@ namespace aStar
     {
         // Hybrid A-Star implementation as described in paper
         // "Application of Hybrid A* to an Autonomous Mobile Robot for Path Planning in Unstructured Outdoor Environments"
-        private const float goalThreshold = 0.4f;
+
+        private const float goalThreshold = 0.6f;
+        private const float colliderResizeFactor = 2f;
         private readonly float stepDistance;
         private readonly float globalStepDistance;
         private readonly float startingAngleRadians;
         private readonly Grid grid;
         private readonly ObstacleMap obstacleMap;
-        private Dictionary<Vector2Int, ObstacleMap.Traversability> traversabilityPerCell;
+        private readonly Dictionary<Vector2Int, ObstacleMap.Traversability> traversabilityPerCell;
         private readonly CarController car;
         private readonly BoxCollider carCollider;
         private readonly float carLength;
@@ -26,6 +28,8 @@ namespace aStar
 
         private Vector3 localStart;
         private Vector3 localGoal;
+
+        private Dictionary<Vector2Int, float> flowField;
 
         public HybridAStarGenerator(float startingAngle, Grid grid, ObstacleMap obstacleMap, CarController car, BoxCollider carCollider)
         {
@@ -55,6 +59,9 @@ namespace aStar
 
             steeringAngles = new float[] { -car.m_MaximumSteerAngle * Mathf.Deg2Rad, 0f, car.m_MaximumSteerAngle * Mathf.Deg2Rad };
             Debug.Log("Maximum steering angle: " + car.m_MaximumSteerAngle);
+
+            InitializeFlowField();
+            CalculateFlowField();
         }
 
 
@@ -64,9 +71,8 @@ namespace aStar
             this.localGoal = localGoal;
 
             // Perform Hybrid-A* to find a path 
-            var openSet = new PriorityQueue();
+            var openSet = new PriorityQueue<float, AStarNode>();
             var closedSet = new HashSet<AStarNode>();
-            // var closedCells = new HashSet<Vector3Int>();
 
             var startNode = new AStarNode(localStart, startingAngleRadians, null, grid)
             {
@@ -75,12 +81,11 @@ namespace aStar
             openSet.Enqueue(startNode.GetFScore(), startNode);
 
             int steps = 0;
-            while (openSet.Count > 0 && steps < 10000) // TODO: remove, just for debugging
+            while (openSet.Count > 0 && steps < 50000) // TODO: remove, just for debugging
             {
                 steps++;
                 var currentNode = openSet.Dequeue().Value;
                 closedSet.Add(currentNode);
-                // closedCells.Add(grid.LocalToCell(currentNode.LocalPosition));
 
                 if (GoalReached(currentNode.LocalPosition, localGoal))
                 {
@@ -94,34 +99,37 @@ namespace aStar
                 foreach (AStarNode nextNode in GenerateChildNodes(currentNode))
                 {
                     if (closedSet.Contains(nextNode))
-                    // if (closedCells.Contains(grid.LocalToCell(nextNode.LocalPosition)))
                     {
                         continue;
                     }
 
                     Vector3 nextGlobal = grid.LocalToWorld(nextNode.LocalPosition);
 
-                    if (!IsReachable(currentNode, nextNode)) // FIXME does not recognize blocked blocks
+                    if (!IsReachable(currentNode, nextNode))
                     {
-                        // // Debug
                         // Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
                         //     nextGlobal, 
                         //     Color.red, 1000f);
-                        // closedSet.Add(nextNode);
-                        // closedCells.Add(grid.LocalToCell(nextNode.LocalPosition));
+
+                        closedSet.Add(nextNode);
                         continue;
                     }
-                    Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                        nextGlobal, 
-                        Color.green, 1000f);
-                    if (!openSet.UpdateValue(nextNode)) // Enqueue if node was not updated
+                    if (!openSet.UpdateValue(nextNode, (newNode, existingNode) => newNode.gScore < existingNode.gScore))
                     {
-                        openSet.Enqueue(nextNode.GetFScore(), nextNode);
+                        Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                            nextGlobal, 
+                            Color.green, 1000f);
+
+                        openSet.Enqueue(nextNode.GetFScore(), nextNode); // Enqueue if node was not updated
+                    } else {
+                        Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                            nextGlobal, 
+                            Color.yellow, 1000f);
                     }
                 }
             }
 
-            Debug.LogWarning("No path found");
+            Debug.LogWarning("No path found in " + steps + " steps");
             return new List<AStarNode>();
         }
 
@@ -168,13 +176,8 @@ namespace aStar
 
         private bool IsReachable(AStarNode current, AStarNode next)
         { 
-            var currentGlobal = current.GetGlobalPosition(grid);
-            var nextGlobal = next.GetGlobalPosition(grid);
-            // // Node not within grid TODO: remove?
-            // var local = Vector3Int.FloorToInt(next.LocalPosition);
-            // Debug.Log("Local pos: " + local);
-            // if (!obstacleMap.mapBounds.Contains(local)) 
-            //     return false;
+            var currentGlobal = current.GetGlobalPosition();
+            var nextGlobal = next.GetGlobalPosition();
                                         
             // Node in blocked cell
             var nextCell = grid.LocalToCell(next.LocalPosition);
@@ -186,7 +189,7 @@ namespace aStar
             var orientation = Quaternion.FromToRotation(Vector3.forward, direction);
 
             bool hit = Physics.BoxCast(currentGlobal,
-                                        carCollider.transform.localScale / 1.5f, // halfExtents, so usually 2 but bigger collider as error margin 
+                                        colliderResizeFactor * carCollider.transform.localScale / 2f,
                                         direction, 
                                         out var hitInfo,
                                         orientation,
@@ -199,21 +202,76 @@ namespace aStar
             return stepDistance / carLength * Mathf.Tan(steeringAngle);
         }
 
-        private float Heuristic(Vector3 localPosition)
-        {
-            // TODO: better heuristic
-            return Vector3.Distance(localPosition, localGoal);
-        }
-
         private bool GoalReached(Vector3 postion, Vector3 goalPosition)
         {
             return Vector3.Distance(postion, goalPosition) < goalThreshold;
+        }
+        private float Heuristic(Vector3 localPosition)
+        {
+            // TODO: Scale values better
+            Vector3Int cell = grid.LocalToCell(localPosition);
+            return flowField[new Vector2Int(cell.x, cell.y)];
+            const float ffWeight = 0.8f;
+            return flowField[new Vector2Int(cell.x, cell.y)] * ffWeight + Vector3.Distance(localPosition, localGoal) * (1-ffWeight);
+        }
+        void InitializeFlowField()
+        {
+            flowField = new Dictionary<Vector2Int, float>(traversabilityPerCell.Count);
+            
+            foreach (Vector2Int key in traversabilityPerCell.Keys)
+            {
+                flowField.Add(key, int.MaxValue);
+            }
+        }
+        void CalculateFlowField()
+        {
+            var goalCell = new Vector2Int(grid.LocalToCell(localGoal).x, grid.LocalToCell(localGoal).y);
+
+            var openSet = new Queue<Vector2Int>();
+
+            openSet.Enqueue(goalCell);
+            flowField[goalCell] = 0;
+
+            Vector2Int[] neighbors = new Vector2Int[]
+            {
+                Vector2Int.down, Vector2Int.up, Vector2Int.left, Vector2Int.right,
+                new (-1, -1), new(-1, 1), new(1, -1), new(1, 1)
+            };
+            float[] dist = new float[]
+            {
+                grid.cellSize.z + grid.cellGap.z, grid.cellSize.z + grid.cellGap.z, grid.cellSize.x + grid.cellGap.x, grid.cellSize.x + grid.cellGap.x,
+                stepDistance, stepDistance, stepDistance, stepDistance
+            };
+
+            // Perform a breadth-first search to calculate the flowfield
+            while (openSet.Count > 0)
+            {
+                Vector2Int currentCell = openSet.Dequeue();
+
+                for (int i = 0; i < neighbors.Length; ++i)
+                {
+                    Vector2Int offset = neighbors[i];
+                    Vector2Int neighborCell = currentCell + offset;
+
+                    // Check if the neighbor is within bounds
+                    if (IsCellValid(neighborCell) && flowField[neighborCell] == int.MaxValue)
+                    {
+                        // Add the neighbor to the open set and update its cost
+                        openSet.Enqueue(neighborCell);
+                        flowField[neighborCell] = flowField[currentCell] + dist[i];
+                    }
+                }
+            }
+        }
+
+        bool IsCellValid(Vector2Int cell)
+        {
+            return traversabilityPerCell.ContainsKey(cell) && traversabilityPerCell[cell] != ObstacleMap.Traversability.Blocked;
         }
     }
 
     public class AStarNode
     {
-
         public Vector3 LocalPosition { get; set; }
         public float angle; // in radians
         public AStarNode parent;
@@ -239,8 +297,8 @@ namespace aStar
             }
 
             AStarNode otherNode = (AStarNode)obj;
-            return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition))
-                    && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 10f; // TODO: export; For angle resolution, multiply value by two TODO: correct to use steering angle?
+            return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition));
+                    // && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 50f; // TODO: export; For angle resolution, multiply value by two FIXME: correct to use steering angle?
         }
 
         public override int GetHashCode()
@@ -253,12 +311,12 @@ namespace aStar
             return hScore + gScore;
         }
 
-        public Vector3 GetGlobalPosition(Grid grid)
+        public Vector3 GetGlobalPosition()
         {
             return grid.LocalToWorld(LocalPosition);
         }
         
-        public void SetGlobalPosition(Grid grid, Vector3 globalPosition)
+        public void SetGlobalPosition(Vector3 globalPosition)
         {
             LocalPosition = grid.WorldToLocal(globalPosition);
         }
@@ -282,14 +340,14 @@ namespace aStar
         }
     }
 
-    public class PriorityQueue
+    public class PriorityQueue<TPriority, TValue>
     {
         // Min-heap Priority Queue
         private readonly List<Node> elements = new();
 
         public int Count => elements.Count;
 
-        public void Enqueue(float priority, AStarNode value)
+        public void Enqueue(TPriority priority, TValue value)
         {
             var newNode = new Node(priority, value);
             elements.Add(newNode);
@@ -298,7 +356,7 @@ namespace aStar
             while (index > 0)
             {
                 int parentIndex = (index - 1) / 2;
-                if (Comparer<float>.Default.Compare(elements[parentIndex].Priority, newNode.Priority) <= 0)
+                if (Comparer<TPriority>.Default.Compare(elements[parentIndex].Priority, newNode.Priority) <= 0)
                     break;
 
                 elements[index] = elements[parentIndex];
@@ -308,7 +366,7 @@ namespace aStar
             elements[index] = newNode;
         }
 
-        public KeyValuePair<float, AStarNode> Dequeue()
+        public KeyValuePair<TPriority, TValue> Dequeue()
         {
             if (elements.Count == 0)
                 throw new InvalidOperationException("Queue is empty");
@@ -326,33 +384,33 @@ namespace aStar
                     break;
 
                 int rightChildIndex = childIndex + 1;
-                if (rightChildIndex < lastIndex && Comparer<float>.Default.Compare(elements[rightChildIndex].Priority, elements[childIndex].Priority) < 0)
+                if (rightChildIndex < lastIndex && Comparer<TPriority>.Default.Compare(elements[rightChildIndex].Priority, elements[childIndex].Priority) < 0)
                     childIndex = rightChildIndex;
 
-                if (Comparer<float>.Default.Compare(elements[childIndex].Priority, elements[index].Priority) >= 0)
+                if (Comparer<TPriority>.Default.Compare(elements[childIndex].Priority, elements[index].Priority) >= 0)
                     break;
 
                 (elements[childIndex], elements[index]) = (elements[index], elements[childIndex]);
                 index = childIndex;
             }
 
-            return new KeyValuePair<float, AStarNode>(frontItem.Priority, frontItem.Value);
+            return new KeyValuePair<TPriority, TValue>(frontItem.Priority, frontItem.Value);
         }
 
-        public bool UpdateValue(AStarNode node)
+        public bool UpdateValue(TValue node, Func<TValue, TValue, bool> comparisonCheck)
         {
             // Update node and return true if updated, otherwise false
             for (int i = 0; i < elements.Count; i++)
             {
-                if (EqualityComparer<AStarNode>.Default.Equals(elements[i].Value, node))
+                if (EqualityComparer<TValue>.Default.Equals(elements[i].Value, node))
                 {
-                    if (node.gScore < elements[i].Value.gScore)
+                    if (comparisonCheck(node, elements[i].Value))
                     {
-                        // Update gScore and Re-heapify the priority queue
-                        elements[i].Value.gScore = node.gScore;
+                        // Update Value and Re-heapify the priority queue
+                        elements[i].Value = node;
                         Heapify(i);
+                        return true;
                     }
-                    return true;
                 }
             }
             return false;
@@ -363,7 +421,7 @@ namespace aStar
             while (index > 0)
             {
                 int parentIndex = (index - 1) / 2;
-                if (Comparer<float>.Default.Compare(elements[parentIndex].Priority, elements[index].Priority) <= 0)
+                if (Comparer<TPriority>.Default.Compare(elements[parentIndex].Priority, elements[index].Priority) <= 0)
                     break;
 
                 (elements[parentIndex], elements[index]) = (elements[index], elements[parentIndex]);
@@ -373,14 +431,15 @@ namespace aStar
 
         private class Node
         {
-            public float Priority { get; }
-            public AStarNode Value { get; set; }
+            public TPriority Priority { get; }
+            public TValue Value { get; set; }
 
-            public Node(float priority, AStarNode value)
+            public Node(TPriority priority, TValue value)
             {
                 Priority = priority;
                 Value = value;
             }
         }
     }
+
 }
