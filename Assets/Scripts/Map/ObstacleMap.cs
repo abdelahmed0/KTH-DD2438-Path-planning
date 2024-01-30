@@ -55,7 +55,8 @@ namespace UnityStandardAssets.Vehicles.Car.Map
         }
         public Traversability IsLocalPointTraversable(Vector3 localPosition)
         {
-            return traversabilityPerCell[new Vector2Int((int)localPosition.x, (int)localPosition.z)];
+            var cellPos = grid.LocalToCell(localPosition);
+            return traversabilityPerCell[new Vector2Int(cellPos.x, cellPos.y)];
         }
 
         private (Dictionary<Vector2Int, List<GameObject>>, Dictionary<Vector2Int, Traversability>) GenerateMapData(List<GameObject> gameObjects)
