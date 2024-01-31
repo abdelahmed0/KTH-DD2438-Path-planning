@@ -59,7 +59,6 @@ namespace aStar
             Debug.Log("Maximum steering angle: " + car.m_MaximumSteerAngle);
 
             InitializeFlowField();
-            CalculateFlowFieldDijkstra();
         }
 
 
@@ -68,6 +67,8 @@ namespace aStar
             this.localStart = localStart;
             this.localGoal = localGoal;
             float startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad; // TODO: understand why starting angle is rotated
+
+            CalculateFlowFieldDijkstra();
 
             // Perform Hybrid-A* to find a path 
             var openSet = new PriorityQueue<float, AStarNode>();
@@ -241,53 +242,56 @@ namespace aStar
                 flowField.Add(key, int.MaxValue);
             }
         }
-        void CalculateFlowField()
-        {
-            var goalCell = new Vector2Int(grid.LocalToCell(localGoal).x, grid.LocalToCell(localGoal).y);
+        // void CalculateFlowField()
+        // {
+        //     var goalCell = new Vector2Int(grid.LocalToCell(localGoal).x, grid.LocalToCell(localGoal).y); 
 
-            var openSet = new Queue<Vector2Int>();
+        //     var openSet = new Queue<Vector2Int>();
+        //     openSet.Enqueue(goalCell);
+        //     flowField[goalCell] = 0;
 
-            openSet.Enqueue(goalCell);
-            flowField[goalCell] = 0;
+        //     Vector2Int[] neighbors = new Vector2Int[]
+        //     {
+        //         Vector2Int.down, Vector2Int.up, Vector2Int.left, Vector2Int.right,
+        //         new (-1, -1), new(-1, 1), new(1, -1), new(1, 1)
+        //     };
+        //     float[] dist = new float[]
+        //     {
+        //         grid.cellSize.z + grid.cellGap.z, grid.cellSize.z + grid.cellGap.z, grid.cellSize.x + grid.cellGap.x, grid.cellSize.x + grid.cellGap.x,
+        //         stepDistance, stepDistance, stepDistance, stepDistance
+        //     };
 
-            Vector2Int[] neighbors = new Vector2Int[]
-            {
-                Vector2Int.down, Vector2Int.up, Vector2Int.left, Vector2Int.right,
-                new (-1, -1), new(-1, 1), new(1, -1), new(1, 1)
-            };
-            float[] dist = new float[]
-            {
-                grid.cellSize.z + grid.cellGap.z, grid.cellSize.z + grid.cellGap.z, grid.cellSize.x + grid.cellGap.x, grid.cellSize.x + grid.cellGap.x,
-                stepDistance, stepDistance, stepDistance, stepDistance
-            };
+        //     // Perform a breadth-first search to calculate the flowfield
+        //     while (openSet.Count > 0)
+        //     {
+        //         Vector2Int currentCell = openSet.Dequeue();
 
-            // Perform a breadth-first search to calculate the flowfield
-            while (openSet.Count > 0)
-            {
-                Vector2Int currentCell = openSet.Dequeue();
+        //         for (int i = 0; i < neighbors.Length; ++i)
+        //         {
+        //             Vector2Int offset = neighbors[i];
+        //             Vector2Int neighborCell = currentCell + offset;
 
-                for (int i = 0; i < neighbors.Length; ++i)
-                {
-                    Vector2Int offset = neighbors[i];
-                    Vector2Int neighborCell = currentCell + offset;
-
-                    // Check if the neighbor is within bounds
-                    if (IsCellValid(neighborCell) && flowField[neighborCell] == int.MaxValue)
-                    {
-                        // Add the neighbor to the open set and update its cost
-                        openSet.Enqueue(neighborCell);
-                        flowField[neighborCell] = flowField[currentCell] + dist[i];
-                    }
-                }
-            }
-        }
+        //             // Check if the neighbor is within bounds
+        //             if (IsCellValid(neighborCell) && flowField[neighborCell] == int.MaxValue)
+        //             {
+        //                 // Add the neighbor to the open set and update its cost
+        //                 openSet.Enqueue(neighborCell);
+        //                 flowField[neighborCell] = flowField[currentCell] + dist[i];
+        //             }
+        //         }
+        //     }
+        // }
+        
         void CalculateFlowFieldDijkstra()
         {
+            Debug.Log("Goal local: " + localGoal);
             var goalCell = new Vector2Int(grid.LocalToCell(localGoal).x, grid.LocalToCell(localGoal).y);
 
             var openSet = new PriorityQueue<float, Vector2Int>();
             openSet.Enqueue(0, goalCell);
             flowField[goalCell] = 0;
+            
+            Debug.Log("Goalcell: " + goalCell);
 
             Vector2Int[] neighbors = new Vector2Int[]
             {
@@ -314,7 +318,7 @@ namespace aStar
                     // Check if the neighbor is within bounds
                     if (IsCellValid(neighborCell))
                     {
-                        float occlusionPenalty = traversabilityPerCell[neighborCell] == ObstacleMap.Traversability.Partial ? 1f : 0.5f;
+                        float occlusionPenalty = traversabilityPerCell[neighborCell] == ObstacleMap.Traversability.Partial ? 1f : 1f;
                         float newCost = currentCost + dist[i] * occlusionPenalty;
 
                         if (newCost < flowField[neighborCell])

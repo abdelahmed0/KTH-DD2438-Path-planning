@@ -35,7 +35,7 @@ namespace UnityStandardAssets.Vehicles.Car
 
         private HybridAStarGenerator pathFinder = null;
         private DubinsGeneratePaths dubinsPathGenerator;
-        private bool drawDebug = false;
+        public bool drawDebug = false;
 
         private void Start()
         {
@@ -307,7 +307,7 @@ namespace UnityStandardAssets.Vehicles.Car
                     gizmoSize.y = 0.005f;
                     gizmoSize.Scale(mapManager.grid.transform.localScale * 0.8f);
                     
-                    Gizmos.color = Mathf.CorrelatedColorTemperatureToRGB(1000 + 1000 * posEntity.Value);
+                    Gizmos.color = Mathf.CorrelatedColorTemperatureToRGB(1000f + 100f * posEntity.Value);
                     Gizmos.DrawCube(cellToLocal, gizmoSize);
                 }
             }
