@@ -278,30 +278,28 @@ namespace UnityStandardAssets.Vehicles.Car.Map
 
                 foreach (var posEntity in ObstacleMap.traversabilityPerCell)
                 {
-                    var position = new Vector3Int(posEntity.Key.x, 1, posEntity.Key.y);
+                    var position = new Vector3Int(posEntity.Key.x, posEntity.Key.y, 0);
 
-                    var cellToLocal = grid.CellToLocal(position);
-                    cellToLocal = new Vector3(cellToLocal.x, 1, cellToLocal.y);
-                    cellToLocal += grid.cellSize / 2;
-                    cellToLocal = grid.transform.TransformPoint(cellToLocal);
+                    var cellToWorld = grid.CellToWorld(position);
+                    cellToWorld += grid.transform.TransformPoint(new Vector3(grid.cellSize.x, 0, grid.cellSize.y)) / 2;
+                    cellToWorld += Vector3.up * 10;
 
-                    var gizmoSize = grid.cellSize;
-                    gizmoSize.y = 0.005f;
+                    var gizmoSize = new Vector3(grid.cellSize.x, 0.005f, grid.cellSize.y);
                     gizmoSize.Scale(grid.transform.localScale * 0.8f);
                     if (posEntity.Value == ObstacleMap.Traversability.Blocked)
                     {
                         Gizmos.color = Color.red;
-                        Gizmos.DrawCube(cellToLocal, gizmoSize);
+                        Gizmos.DrawCube(cellToWorld, gizmoSize);
                     }
                     else if (posEntity.Value == ObstacleMap.Traversability.Partial)
                     {
                         Gizmos.color = Color.yellow;
-                        Gizmos.DrawCube(cellToLocal, gizmoSize);
+                        Gizmos.DrawCube(cellToWorld, gizmoSize);
                     }
                     else
                     {
                         Gizmos.color = Color.green;
-                        Gizmos.DrawCube(cellToLocal, gizmoSize);
+                        Gizmos.DrawCube(cellToWorld, gizmoSize);
                     }
                 }
             }
