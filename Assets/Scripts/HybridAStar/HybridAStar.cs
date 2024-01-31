@@ -17,7 +17,6 @@ namespace aStar
         private const float colliderResizeFactor = 2f;
         private readonly float stepDistance;
         private readonly float globalStepDistance;
-        private readonly float startingAngleRadians;
         private readonly Grid grid;
         private readonly ObstacleMap obstacleMap;
         private readonly Dictionary<Vector2Int, ObstacleMap.Traversability> traversabilityPerCell;
@@ -29,13 +28,10 @@ namespace aStar
         private Vector3 localStart;
         private Vector3 localGoal;
 
-        private Dictionary<Vector2Int, float> flowField;
+        public Dictionary<Vector2Int, float> flowField = null;
 
-        public HybridAStarGenerator(float startingAngle, Grid grid, ObstacleMap obstacleMap, CarController car, BoxCollider carCollider)
+        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, CarController car, BoxCollider carCollider)
         {
-            startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad; // TODO: understand why starting angle is rotated
-
-            Debug.Log("Starting angle: " + startingAngle);
             this.grid = grid;
             this.obstacleMap = obstacleMap;
             traversabilityPerCell = obstacleMap.traversabilityPerCell;
@@ -57,7 +53,9 @@ namespace aStar
             Debug.Log("Global step distance: " + globalStepDistance);
             Debug.Log("Car length" + carLength);
 
-            steeringAngles = new float[] { -car.m_MaximumSteerAngle * Mathf.Deg2Rad, 0f, car.m_MaximumSteerAngle * Mathf.Deg2Rad };
+            steeringAngles = new float[] { -car.m_MaximumSteerAngle * Mathf.Deg2Rad, -car.m_MaximumSteerAngle / 2f * Mathf.Deg2Rad, 0f, car.m_MaximumSteerAngle / 2f * Mathf.Deg2Rad,  car.m_MaximumSteerAngle * Mathf.Deg2Rad };
+            // steeringAngles = new float[] { -car.m_MaximumSteerAngle * Mathf.Deg2Rad, 0f, car.m_MaximumSteerAngle * Mathf.Deg2Rad };
+
             Debug.Log("Maximum steering angle: " + car.m_MaximumSteerAngle);
 
             InitializeFlowField();
@@ -65,10 +63,11 @@ namespace aStar
         }
 
 
-        public List<AStarNode> GeneratePath(Vector3 localStart, Vector3 localGoal)
+        public List<AStarNode> GeneratePath(Vector3 localStart, Vector3 localGoal, float startingAngle)
         {
             this.localStart = localStart;
             this.localGoal = localGoal;
+            float startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad; // TODO: understand why starting angle is rotated
 
             // Perform Hybrid-A* to find a path 
             var openSet = new PriorityQueue<float, AStarNode>();
@@ -80,8 +79,12 @@ namespace aStar
             };
             openSet.Enqueue(startNode.GetFScore(), startNode);
 
+            var backwardsNode = startNode.Copy();
+            backwardsNode.angle = (startingAngle - 90) * Mathf.Deg2Rad;
+            openSet.Enqueue(startNode.GetFScore(), backwardsNode);
+
             int steps = 0;
-            while (openSet.Count > 0 && steps < 1000) // TODO: remove, just for debugging
+            while (openSet.Count > 0 && steps < 10000) // TODO: remove, just for debugging
             {
                 steps++;
                 var currentNode = openSet.Dequeue().Value;
@@ -122,9 +125,9 @@ namespace aStar
 
                         openSet.Enqueue(nextNode.GetFScore(), nextNode); // Enqueue if node was not updated
                     } else {
-                        // Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                        //     nextGlobal, 
-                        //     Color.yellow, 1000f);
+                        Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                            nextGlobal, 
+                            Color.yellow, 1000f);
                     }
                 }
             }
@@ -179,6 +182,12 @@ namespace aStar
         { 
             var currentGlobal = current.GetGlobalPosition();
             var nextGlobal = next.GetGlobalPosition();
+            var cell = grid.WorldToCell(nextGlobal);
+            
+            // Check if outside of map
+            var cell2d = new Vector2Int(cell.x, cell.y);
+            if (!traversabilityPerCell.ContainsKey(cell2d))
+                return false;
                                         
             // Node in blocked cell
             var nextCell = grid.LocalToCell(next.LocalPosition);
@@ -216,11 +225,12 @@ namespace aStar
         }
         private float Heuristic(Vector3 localPosition)
         {
-            // TODO: Scale values better
             Vector3Int cell = grid.LocalToCell(localPosition);
-            return flowField[new Vector2Int(cell.x, cell.y)];//  * 0.5f;
-            const float ffWeight = 0.5f;
-            return flowField[new Vector2Int(cell.x, cell.y)] * ffWeight + Vector3.Distance(localPosition, localGoal) * (1-ffWeight);
+            Vector2Int cell2d = new Vector2Int(cell.x, cell.y);
+            if (!flowField.ContainsKey(cell2d))
+                return float.MaxValue;
+            else
+                return flowField[cell2d];
         }
         void InitializeFlowField()
         {
@@ -282,12 +292,12 @@ namespace aStar
             Vector2Int[] neighbors = new Vector2Int[]
             {
                 Vector2Int.down, Vector2Int.up, Vector2Int.left, Vector2Int.right,
-                // new(-1, -1), new(-1, 1), new(1, -1), new(1, 1)
+                new(-1, -1), new(-1, 1), new(1, -1), new(1, 1)
             };
             float[] dist = new float[]
             {
                 grid.cellSize.z + grid.cellGap.z, grid.cellSize.z + grid.cellGap.z, grid.cellSize.x + grid.cellGap.x, grid.cellSize.x + grid.cellGap.x,
-                // stepDistance, stepDistance, stepDistance, stepDistance
+                stepDistance, stepDistance, stepDistance, stepDistance
             };
 
 
@@ -304,7 +314,7 @@ namespace aStar
                     // Check if the neighbor is within bounds
                     if (IsCellValid(neighborCell))
                     {
-                        float occlusionPenalty = traversabilityPerCell[neighborCell] == ObstacleMap.Traversability.Partial ? 2f : 1f;
+                        float occlusionPenalty = traversabilityPerCell[neighborCell] == ObstacleMap.Traversability.Partial ? 1f : 0.5f;
                         float newCost = currentCost + dist[i] * occlusionPenalty;
 
                         if (newCost < flowField[neighborCell])
@@ -351,8 +361,8 @@ namespace aStar
             }
 
             AStarNode otherNode = (AStarNode)obj;
-            return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition))
-                    && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 10f; // TODO: export; For angle resolution, multiply value by two FIXME: correct to use steering angle?
+            return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition));
+                    // && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 50f; // TODO: export; For angle resolution, multiply value by two FIXME: correct to use steering angle?
         }
 
         public override int GetHashCode()

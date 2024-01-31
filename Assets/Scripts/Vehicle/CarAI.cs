@@ -33,7 +33,9 @@ namespace UnityStandardAssets.Vehicles.Car
         private int currentNodeIdx;
         private float integral = 0f;
 
+        private HybridAStarGenerator pathFinder = null;
         private DubinsGeneratePaths dubinsPathGenerator;
+        private bool drawDebug = false;
 
         private void Start()
         {
@@ -46,8 +48,8 @@ namespace UnityStandardAssets.Vehicles.Car
             Vector3 localGoal = mapManager.localGoalPosition;
             
             currentNodeIdx = 0;
-            HybridAStarGenerator pathFinder = new(transform.eulerAngles.y, mapManager.grid, mapManager.GetObstacleMap(), m_Car, carCollider);
-            List<AStarNode> nodePath = pathFinder.GeneratePath(localStart, localGoal);
+            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car, carCollider);
+            List<AStarNode> nodePath = pathFinder.GeneratePath(localStart, localGoal, transform.eulerAngles.y);
             
             foreach (var node in nodePath)
             {
@@ -249,6 +251,7 @@ namespace UnityStandardAssets.Vehicles.Car
 
         private void PidControllTowardsPosition(Vector3 globalTargetPosition)
         {
+            // TODO: add function based on node angle to decide velocity
             Vector3 globalPosition = transform.position;
             Vector3 target_position;
 
@@ -285,6 +288,29 @@ namespace UnityStandardAssets.Vehicles.Car
             // this is how you control the car
             // Debug.Log("Steering:" + steering + " Acceleration:" + acceleration);
             m_Car.Move(steering, acceleration, acceleration, 0f);
+        }
+
+        void OnDrawGizmos()
+        {
+            if (drawDebug && pathFinder != null && pathFinder.flowField != null)
+            {
+                foreach (var posEntity in pathFinder.flowField)
+                {
+                    var position = new Vector3Int(posEntity.Key.x, 1, posEntity.Key.y);
+
+                    var cellToLocal = mapManager.grid.CellToLocal(position);
+                    cellToLocal = new Vector3(cellToLocal.x, 1, cellToLocal.y);
+                    cellToLocal += mapManager.grid.cellSize / 2;
+                    cellToLocal = mapManager.grid.transform.TransformPoint(cellToLocal);
+
+                    var gizmoSize = mapManager.grid.cellSize;
+                    gizmoSize.y = 0.005f;
+                    gizmoSize.Scale(mapManager.grid.transform.localScale * 0.8f);
+                    
+                    Gizmos.color = Mathf.CorrelatedColorTemperatureToRGB(1000 + 1000 * posEntity.Value);
+                    Gizmos.DrawCube(cellToLocal, gizmoSize);
+                }
+            }
         }
     }
 
