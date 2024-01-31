@@ -61,7 +61,7 @@ namespace aStar
             Debug.Log("Maximum steering angle: " + car.m_MaximumSteerAngle);
 
             InitializeFlowField();
-            CalculateFlowField();
+            CalculateFlowFieldDijkstra();
         }
 
 
@@ -81,13 +81,13 @@ namespace aStar
             openSet.Enqueue(startNode.GetFScore(), startNode);
 
             int steps = 0;
-            while (openSet.Count > 0 && steps < 50000) // TODO: remove, just for debugging
+            while (openSet.Count > 0 && steps < 1000) // TODO: remove, just for debugging
             {
                 steps++;
                 var currentNode = openSet.Dequeue().Value;
                 closedSet.Add(currentNode);
 
-                if (GoalReached(currentNode.LocalPosition, localGoal))
+                if (GoalReached(currentNode.LocalPosition))
                 {
                     // Reconstruct the path if the goal is reached
                     var path = currentNode.BackTrackPath();
@@ -122,9 +122,9 @@ namespace aStar
 
                         openSet.Enqueue(nextNode.GetFScore(), nextNode); // Enqueue if node was not updated
                     } else {
-                        Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                            nextGlobal, 
-                            Color.yellow, 1000f);
+                        // Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                        //     nextGlobal, 
+                        //     Color.yellow, 1000f);
                     }
                 }
             }
@@ -135,6 +135,7 @@ namespace aStar
 
         private IEnumerable<AStarNode> GenerateChildNodes(AStarNode parent)
         {
+            // FIXME: uses local coordinates, so it does not work for terrainB with weird scales
             foreach (float steeringAngle in steeringAngles)
             {
                 var nextNode = parent.Copy();
@@ -194,6 +195,13 @@ namespace aStar
                                         out var hitInfo,
                                         orientation,
                                         globalStepDistance);
+            // if (hit)
+            //     ExtDebug.DrawBoxCastOnHit(currentGlobal,
+            //                             colliderResizeFactor * carCollider.transform.localScale / 2f,
+            //                             direction, 
+            //                             orientation,
+            //                             hitInfo.distance,
+            //                             Color.blue);
             return !hit;
     }
 
@@ -202,16 +210,16 @@ namespace aStar
             return stepDistance / carLength * Mathf.Tan(steeringAngle);
         }
 
-        private bool GoalReached(Vector3 postion, Vector3 goalPosition)
+        private bool GoalReached(Vector3 postion)
         {
-            return Vector3.Distance(postion, goalPosition) < goalThreshold;
+            return Vector2.Distance(new Vector2(postion.x, postion.z), new Vector2(localGoal.x, localGoal.z)) < goalThreshold;
         }
         private float Heuristic(Vector3 localPosition)
         {
             // TODO: Scale values better
             Vector3Int cell = grid.LocalToCell(localPosition);
-            return flowField[new Vector2Int(cell.x, cell.y)];
-            const float ffWeight = 0.8f;
+            return flowField[new Vector2Int(cell.x, cell.y)];//  * 0.5f;
+            const float ffWeight = 0.5f;
             return flowField[new Vector2Int(cell.x, cell.y)] * ffWeight + Vector3.Distance(localPosition, localGoal) * (1-ffWeight);
         }
         void InitializeFlowField()
@@ -263,6 +271,52 @@ namespace aStar
                 }
             }
         }
+        void CalculateFlowFieldDijkstra()
+        {
+            var goalCell = new Vector2Int(grid.LocalToCell(localGoal).x, grid.LocalToCell(localGoal).y);
+
+            var openSet = new PriorityQueue<float, Vector2Int>();
+            openSet.Enqueue(0, goalCell);
+            flowField[goalCell] = 0;
+
+            Vector2Int[] neighbors = new Vector2Int[]
+            {
+                Vector2Int.down, Vector2Int.up, Vector2Int.left, Vector2Int.right,
+                // new(-1, -1), new(-1, 1), new(1, -1), new(1, 1)
+            };
+            float[] dist = new float[]
+            {
+                grid.cellSize.z + grid.cellGap.z, grid.cellSize.z + grid.cellGap.z, grid.cellSize.x + grid.cellGap.x, grid.cellSize.x + grid.cellGap.x,
+                // stepDistance, stepDistance, stepDistance, stepDistance
+            };
+
+
+            // Perform Dijkstra's algorithm to calculate the flow field
+            while (openSet.Count > 0)
+            {
+                var (currentCost, currentCell) = openSet.Dequeue();
+
+                for (int i = 0; i < neighbors.Length; ++i)
+                {
+                    Vector2Int offset = neighbors[i];
+                    Vector2Int neighborCell = currentCell + offset;
+
+                    // Check if the neighbor is within bounds
+                    if (IsCellValid(neighborCell))
+                    {
+                        float occlusionPenalty = traversabilityPerCell[neighborCell] == ObstacleMap.Traversability.Partial ? 2f : 1f;
+                        float newCost = currentCost + dist[i] * occlusionPenalty;
+
+                        if (newCost < flowField[neighborCell])
+                        {
+                            // Update the cost and add the neighbor to the open set
+                            flowField[neighborCell] = newCost;
+                            openSet.Enqueue(newCost, neighborCell);
+                        }
+                    }
+                }
+            }
+        }
 
         bool IsCellValid(Vector2Int cell)
         {
@@ -297,8 +351,8 @@ namespace aStar
             }
 
             AStarNode otherNode = (AStarNode)obj;
-            return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition));
-                    // && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 50f; // TODO: export; For angle resolution, multiply value by two FIXME: correct to use steering angle?
+            return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition))
+                    && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 10f; // TODO: export; For angle resolution, multiply value by two FIXME: correct to use steering angle?
         }
 
         public override int GetHashCode()
