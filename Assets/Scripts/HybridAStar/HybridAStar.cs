@@ -15,7 +15,7 @@ namespace aStar
 
         private const float goalThreshold = 1.1f;
         private const float colliderResizeFactor = 2f;
-        private const int maxSteps = 100000;
+        private const int maxSteps = 300000;
 
         private readonly float stepDistance;
         private readonly float globalStepDistance;

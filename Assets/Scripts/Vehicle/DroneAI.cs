@@ -1,68 +1,64 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using System;
 using UnityStandardAssets.Vehicles.Car.Map;
+using aStar;
 
 [RequireComponent(typeof(DroneController))]
 public class DroneAI : MonoBehaviour
 {
+    public bool driveInCircle = false;
+    public float circleRadius = 15f;
+    public float circleSpeed = 5f;
+    float alpha = 0f;
+    public Vector3 circleCenter = Vector3.zero;
+    private Vector3 target_velocity;
+    public float k_p = 2f;
+    public float k_i = 0.1f;
+    public float k_d = 0.5f;
+    private float integral = 0f;
+    public float nodeDistThreshold = 0.6f;
     private DroneController m_Drone; // the controller we want to use
     private MapManager mapManager;
     private BoxCollider droneCollider;
+    Rigidbody my_rigidbody;
+    private Vector3 oldTargetPosition;
+
+    private HybridAStarGenerator pathFinder = null;
+    private List<Vector3> path = new();
+    private int currentNodeIdx;
 
     private void Start()
     {
         droneCollider = gameObject.GetComponent<BoxCollider>();
+        my_rigidbody = GetComponent<Rigidbody>();
 
         // get the drone controller
         m_Drone = GetComponent<DroneController>();
         mapManager = FindObjectOfType<GameManager>().mapManager;
       
-
-
-        // Plan your path here
-        Vector3 someLocalPosition = mapManager.grid.WorldToLocal(transform.position); // Position of car w.r.p map coordinate origin (not world global)
-        // transform.localRotation;  Rotation w.r.p map coordinate origin (not world global)
-
-        // This is how you access information about specific points
-        var obstacleMap = mapManager.GetObstacleMap();
-        obstacleMap.IsLocalPointTraversable(someLocalPosition);
-
-        // Local to grid and inverse. See other methods for more.
-        obstacleMap.grid.LocalToCell(someLocalPosition);
-
-        // This is how you access a traversability grid or gameObjects in each cell.
-        Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
-        Dictionary<Vector2Int, List<GameObject>> gameObjectsData = obstacleMap.gameGameObjectsPerCell;
-        // Easy way to find all position vectors is either "Keys" in above dictionary or:
-        foreach (var posThreeDim in obstacleMap.mapBounds.allPositionsWithin)
+        Vector3 localStart = mapManager.localStartPosition;
+        Vector3 localGoal = mapManager.localGoalPosition;
+        oldTargetPosition = transform.position;
+        
+        currentNodeIdx = 0;
+        pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), 20f, droneCollider);
+        List<AStarNode> nodePath = pathFinder.GeneratePath(
+            new Vector3(localStart.x, mapManager.grid.WorldToLocal( droneCollider.transform.position).y, localStart.z),
+            new Vector3(localGoal.x, mapManager.grid.WorldToLocal( droneCollider.transform.position).y, localGoal.z),
+            transform.eulerAngles.y);
+        
+        foreach (var node in nodePath)
         {
-            Vector2Int gridPos = new Vector2Int(posThreeDim.x, posThreeDim.z);
-        }
-        // If you need more details, feel free to check out the ObstacleMap class internals.
-
-        Vector3 start_pos = mapManager.localStartPosition;
-        Vector3 goal_pos = mapManager.localGoalPosition;
-
-        List<Vector3> my_path = new List<Vector3>();
-
-        my_path.Add(start_pos);
-
-        for (int i = 0; i < 3; i++)
-        {
-            Vector3 waypoint = new Vector3(UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.x, mapManager.GetObstacleMap().mapBounds.max.x), 0, UnityEngine.Random.Range(mapManager.GetObstacleMap().mapBounds.min.z, mapManager.GetObstacleMap().mapBounds.max.z));
-            my_path.Add(waypoint);
+            path.Add(node.LocalPosition);
         }
 
-        my_path.Add(goal_pos);
-
-
-        // Plot your path to see if it makes sense
-        // Note that path can only be seen in "Scene" window, not "Game" window
-        Vector3 old_wp = start_pos;
-        foreach (var wp in my_path)
+        // Draw unsmoothed path
+        Vector3 old_wp = localStart;
+        foreach (var wp in path)
         {
-            Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.white, 100f);
+            Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp), Color.magenta, 1000f);
             old_wp = wp;
         }
     }
@@ -70,42 +66,65 @@ public class DroneAI : MonoBehaviour
 
     private void FixedUpdate()
     {
+        // TODO: Implement backing up of car if stuck (velocity near zero and/or colliding with object)
+        if (path.Count == 0)
+        {
+            return;
+        }
+
         var globalPosition = transform.position;
+        Vector3 localPosition = mapManager.grid.WorldToLocal(transform.position);
         
-        // How to calculate if a physics collider overlaps another.
-        var sampleObstacle = mapManager.GetObstacleMap().obstacleObjects[0];
-        bool overlapped = Physics.ComputePenetration(
-            droneCollider, transform.position, transform.rotation, // Use global position 
-            sampleObstacle.GetComponent<MeshCollider>(), // Can take any collider and "project" it using position and rotation vectors.
-            sampleObstacle.transform.position,
-            sampleObstacle.transform.rotation,
-            out var direction, out var distance
-        );
-        // 'out's give shortest direction and distance to "uncollide" two objects.
-        if (overlapped || distance > 0)
-        {
-            // Means collider inside another   
-        }
-        // For more details https:docs.unity3d.com/ScriptReference/Physics.ComputePenetration.html
-        ///////////////////////////
+        Vector3 localNextNode = path[currentNodeIdx];
+        Vector3 globalNextNode = mapManager.grid.LocalToWorld(localNextNode);
 
 
-        // This is how you access information about the terrain from a simulated laser range finder
-        // It might be wise to use this for error recovery, but do most of the planning before the race clock starts
-        RaycastHit hit;
-        float maxRange = 50f;
-        if (Physics.Raycast(globalPosition + transform.up, transform.TransformDirection(Vector3.forward), out hit, maxRange))
+        PidControllTowardsPosition(globalNextNode);
+        // If car is at pathNode, update pathNodeEnumerator
+        if (currentNodeIdx < path.Count - 1 && Vector3.Distance(mapManager.grid.WorldToLocal(globalPosition), localNextNode) < nodeDistThreshold)
         {
-            Vector3 closestObstacleInFront = transform.TransformDirection(Vector3.forward) * hit.distance;
-            Debug.DrawRay(globalPosition, closestObstacleInFront, Color.yellow);
-            Debug.Log("Did Hit");
+            currentNodeIdx++;
         }
 
-        Debug.DrawLine(globalPosition, mapManager.GetGlobalStartPosition(), Color.cyan); // Draw in global space
         Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
-
-
-        // this is how you control the drone
-        m_Drone.Move(0.4f * Mathf.Sin(Time.time * 1.9f), 0.1f);
     }
+
+    private void PidControllTowardsPosition(Vector3 globalTargetPosition)
+        {
+            // TODO: add function based on node angle to decide velocity
+            Vector3 targetPosition;
+
+            if (driveInCircle) // for the circle option
+            {
+                alpha +=  Time.deltaTime * (circleSpeed / circleRadius);
+                targetPosition = circleCenter + circleRadius * new Vector3((float)Math.Sin(alpha), 0f, (float)Math.Cos(alpha));
+                target_velocity = circleSpeed * new Vector3((float)Math.Cos(alpha), 0f, -(float)Math.Sin(alpha));
+            }
+            else // target is next node in path
+            {
+                targetPosition = globalTargetPosition;
+                target_velocity = (targetPosition - oldTargetPosition) / Time.fixedDeltaTime;
+            }
+
+            oldTargetPosition = targetPosition;
+
+            // a PD-controller to get desired acceleration from errors in position and velocity
+            Vector3 positionError = targetPosition - transform.position;
+            Vector3 velocityError = target_velocity - my_rigidbody.velocity;
+
+            Vector3 proportional = k_p * positionError;
+            integral += Time.fixedDeltaTime * positionError.magnitude;
+            Vector3 integralTerm = k_i * integral * positionError.normalized;
+            Vector3 derivativeTerm = k_d * velocityError;
+
+            Vector3 desired_acceleration = proportional + integralTerm + derivativeTerm;
+            float steering = Vector3.Dot(desired_acceleration, transform.right);
+            float acceleration = Vector3.Dot(desired_acceleration, transform.forward);
+
+            Debug.DrawLine(targetPosition, targetPosition + target_velocity, Color.red);
+            Debug.DrawLine(oldTargetPosition, oldTargetPosition + my_rigidbody.velocity, Color.magenta);
+            Debug.DrawLine(oldTargetPosition, oldTargetPosition + desired_acceleration, Color.black);
+
+            m_Drone.Move(0.1f * steering, acceleration);
+        }
 }
