@@ -20,11 +20,12 @@ namespace UnityStandardAssets.Vehicles.Car
         public Vector3 circleCenter = Vector3.zero;
         private Vector3 target_velocity;
         public float k_p = 2f;
-        public float k_i = 0.01f;
+        public float k_i = 0.1f;
         public float k_d = 0.5f;
-        public float nodeDistThreshold = 0.6f;
+        public float nodeDistThreshold = 0.3f;
 
         Rigidbody my_rigidbody;
+        private Vector3 oldTargetPosition;
 
         private CarController m_Car; // the car controller we want to use
         private MapManager mapManager;
@@ -33,7 +34,9 @@ namespace UnityStandardAssets.Vehicles.Car
         private int currentNodeIdx;
         private float integral = 0f;
 
+        private HybridAStarGenerator pathFinder = null;
         private DubinsGeneratePaths dubinsPathGenerator;
+        public bool drawDebug = false;
 
         private void Start()
         {
@@ -42,12 +45,24 @@ namespace UnityStandardAssets.Vehicles.Car
             mapManager = FindObjectOfType<GameManager>().mapManager;
             my_rigidbody = GetComponent<Rigidbody>();
 
+            // TODO: rescale grid to have square shaped grid cells of length=carLength
+            // float carLength = carCollider.transform.localScale.z;
+            // carLength = 4f;
+            // Debug.Log("Global carLength: " + carLength);
+            // Vector3 gridScale = mapManager.grid.transform.localScale;
+            // mapManager.grid.cellSize = new Vector3(carLength / gridScale.x, carLength / gridScale.y, carLength / gridScale.z);
+            // mapManager.Initialize();
+
             Vector3 localStart = mapManager.localStartPosition;
             Vector3 localGoal = mapManager.localGoalPosition;
+            oldTargetPosition = transform.position;
             
             currentNodeIdx = 0;
-            HybridAStarGenerator pathFinder = new(transform.eulerAngles.y, mapManager.grid, mapManager.GetObstacleMap(), m_Car, carCollider);
-            List<AStarNode> nodePath = pathFinder.GeneratePath(localStart, localGoal);
+            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car, carCollider);
+            List<AStarNode> nodePath = pathFinder.GeneratePath(
+                new Vector3(localStart.x, 0.01f, localStart.z),
+                new Vector3(localGoal.x, 0.01f, localGoal.z),
+                transform.eulerAngles.y);
             
             foreach (var node in nodePath)
             {
@@ -249,42 +264,67 @@ namespace UnityStandardAssets.Vehicles.Car
 
         private void PidControllTowardsPosition(Vector3 globalTargetPosition)
         {
-            Vector3 globalPosition = transform.position;
-            Vector3 target_position;
+            // TODO: add function based on node angle to decide velocity
+            Vector3 targetPosition;
 
             if (driveInCircle) // for the circle option
             {
                 alpha +=  Time.deltaTime * (circleSpeed / circleRadius);
-                target_position = circleCenter + circleRadius * new Vector3((float)Math.Sin(alpha), 0f, (float)Math.Cos(alpha));
+                targetPosition = circleCenter + circleRadius * new Vector3((float)Math.Sin(alpha), 0f, (float)Math.Cos(alpha));
                 target_velocity = circleSpeed * new Vector3((float)Math.Cos(alpha), 0f, -(float)Math.Sin(alpha));
             }
             else // target is next node in path
             {
-                target_position = globalTargetPosition;
-                target_velocity = (target_position - globalPosition) / Time.fixedDeltaTime;
+                targetPosition = globalTargetPosition;
+                target_velocity = (targetPosition - oldTargetPosition) / Time.fixedDeltaTime;
             }
 
-            // a PD-controller to get desired acceleration from errors in position and velocity
-            Vector3 position_error = target_position - transform.position;
-            Vector3 velocity_error = target_velocity - my_rigidbody.velocity;
+            oldTargetPosition = targetPosition;
 
-            Vector3 proportional = k_p * position_error;
-            integral += Time.fixedDeltaTime * position_error.magnitude;
-            Vector3 integralTerm = k_i * integral * position_error.normalized;
-            Vector3 derivativeTerm = k_d * velocity_error;
+            // a PD-controller to get desired acceleration from errors in position and velocity
+            Vector3 positionError = targetPosition - transform.position;
+            Vector3 velocityError = target_velocity - my_rigidbody.velocity;
+
+            Vector3 proportional = k_p * positionError;
+            integral += Time.fixedDeltaTime * positionError.magnitude;
+            Vector3 integralTerm = k_i * integral * positionError.normalized;
+            Vector3 derivativeTerm = k_d * velocityError;
 
             Vector3 desired_acceleration = proportional + integralTerm + derivativeTerm;
 
             float steering = Vector3.Dot(desired_acceleration, transform.right);
             float acceleration = Vector3.Dot(desired_acceleration, transform.forward);
 
-            Debug.DrawLine(target_position, target_position + target_velocity, Color.red);
-            Debug.DrawLine(globalPosition, globalPosition + my_rigidbody.velocity, Color.magenta);
-            Debug.DrawLine(globalPosition, globalPosition + desired_acceleration, Color.black);
+            Debug.DrawLine(targetPosition, targetPosition + target_velocity, Color.red);
+            Debug.DrawLine(oldTargetPosition, oldTargetPosition + my_rigidbody.velocity, Color.magenta);
+            Debug.DrawLine(oldTargetPosition, oldTargetPosition + desired_acceleration, Color.black);
 
             // this is how you control the car
             // Debug.Log("Steering:" + steering + " Acceleration:" + acceleration);
             m_Car.Move(steering, acceleration, acceleration, 0f);
+        }
+
+        void OnDrawGizmos()
+        {
+            if (drawDebug && pathFinder != null && pathFinder.flowField != null)
+            {
+                foreach (var posEntity in pathFinder.flowField)
+                {
+                    var position = new Vector3Int(posEntity.Key.x, 1, posEntity.Key.y);
+
+                    var cellToLocal = mapManager.grid.CellToLocal(position);
+                    cellToLocal = new Vector3(cellToLocal.x, 1, cellToLocal.y);
+                    cellToLocal += mapManager.grid.cellSize / 2;
+                    cellToLocal = mapManager.grid.transform.TransformPoint(cellToLocal);
+
+                    var gizmoSize = mapManager.grid.cellSize;
+                    gizmoSize.y = 0.005f;
+                    gizmoSize.Scale(mapManager.grid.transform.localScale * 0.8f);
+                    
+                    Gizmos.color = Mathf.CorrelatedColorTemperatureToRGB(1000f + 100f * posEntity.Value);
+                    Gizmos.DrawCube(cellToLocal, gizmoSize);
+                }
+            }
         }
     }
 
