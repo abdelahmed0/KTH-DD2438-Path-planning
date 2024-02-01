@@ -13,8 +13,10 @@ namespace aStar
         // Hybrid A-Star implementation as described in paper
         // "Application of Hybrid A* to an Autonomous Mobile Robot for Path Planning in Unstructured Outdoor Environments"
 
-        private const float goalThreshold = 0.6f;
+        private const float goalThreshold = 1.1f;
         private const float colliderResizeFactor = 2f;
+        private const int maxSteps = 100000;
+
         private readonly float stepDistance;
         private readonly float globalStepDistance;
         private readonly Grid grid;
@@ -53,8 +55,8 @@ namespace aStar
             Debug.Log("Global step distance: " + globalStepDistance);
             Debug.Log("Car length" + carLength);
 
-            steeringAngles = new float[] { -car.m_MaximumSteerAngle * Mathf.Deg2Rad, -car.m_MaximumSteerAngle / 2f * Mathf.Deg2Rad, 0f, car.m_MaximumSteerAngle / 2f * Mathf.Deg2Rad,  car.m_MaximumSteerAngle * Mathf.Deg2Rad };
-            // steeringAngles = new float[] { -car.m_MaximumSteerAngle * Mathf.Deg2Rad, 0f, car.m_MaximumSteerAngle * Mathf.Deg2Rad };
+            // steeringAngles = new float[] { -car.m_MaximumSteerAngle * Mathf.Deg2Rad, -car.m_MaximumSteerAngle / 2f * Mathf.Deg2Rad, 0f, car.m_MaximumSteerAngle / 2f * Mathf.Deg2Rad,  car.m_MaximumSteerAngle * Mathf.Deg2Rad };
+            steeringAngles = new float[] { -car.m_MaximumSteerAngle * Mathf.Deg2Rad, 0f, car.m_MaximumSteerAngle * Mathf.Deg2Rad };
 
             Debug.Log("Maximum steering angle: " + car.m_MaximumSteerAngle);
 
@@ -68,11 +70,11 @@ namespace aStar
             this.localGoal = localGoal;
             float startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad; // TODO: understand why starting angle is rotated
 
-            CalculateFlowFieldDijkstra();
+            CalculateFlowField();
 
             // Perform Hybrid-A* to find a path 
             var openSet = new PriorityQueue<float, AStarNode>();
-            var closedSet = new HashSet<AStarNode>();
+            var closedSet = new HashSet<AStarNode>(); // TODO: use array of hashset for some number of angles per cell (according to some angle resolution)
 
             var startNode = new AStarNode(localStart, startingAngleRadians, null, grid)
             {
@@ -85,7 +87,7 @@ namespace aStar
             openSet.Enqueue(startNode.GetFScore(), backwardsNode);
 
             int steps = 0;
-            while (openSet.Count > 0 && steps < 10000) // TODO: remove, just for debugging
+            while (openSet.Count > 0 && steps < maxSteps)
             {
                 steps++;
                 var currentNode = openSet.Dequeue().Value;
@@ -93,8 +95,11 @@ namespace aStar
 
                 if (GoalReached(currentNode.LocalPosition))
                 {
+                    var goalNode = currentNode.Copy();
+                    goalNode.parent = currentNode;
+                    goalNode.LocalPosition = localGoal;
                     // Reconstruct the path if the goal is reached
-                    var path = currentNode.BackTrackPath();
+                    var path = goalNode.BackTrackPath();
                     path.Reverse();
                     return path;
                 }
@@ -118,18 +123,18 @@ namespace aStar
                         closedSet.Add(nextNode);
                         continue;
                     }
-                    if (!openSet.UpdateValue(nextNode, (newNode, existingNode) => newNode.gScore < existingNode.gScore))
-                    {
+                    // if (!openSet.UpdateValue(nextNode, (newNode, existingNode) => newNode.gScore < existingNode.gScore))
+                    // {
                         Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
                             nextGlobal, 
                             Color.green, 1000f);
 
                         openSet.Enqueue(nextNode.GetFScore(), nextNode); // Enqueue if node was not updated
-                    } else {
-                        Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                            nextGlobal, 
-                            Color.yellow, 1000f);
-                    }
+                    // } else {
+                    //     Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                    //         nextGlobal, 
+                    //         Color.yellow, 1000f);
+                    // }
                 }
             }
 
@@ -143,6 +148,7 @@ namespace aStar
             foreach (float steeringAngle in steeringAngles)
             {
                 var nextNode = parent.Copy();
+                nextNode.parent = parent;
 
                 float turningAngle = SteeringToTurningAngle(steeringAngle);
                 // Debug.Log("Turning angle: "+ turningAngle * Mathf.Rad2Deg);
@@ -150,7 +156,6 @@ namespace aStar
                 {
                     float turningRadius = stepDistance / turningAngle;
 
-                    // Circle center TODO: save and use for path following
                     float cX = parent.LocalPosition.x - Mathf.Sin(parent.angle) * turningRadius;
                     float cZ = parent.LocalPosition.z + Mathf.Cos(parent.angle) * turningRadius;
                     
@@ -170,9 +175,8 @@ namespace aStar
                         nextNode.LocalPosition.y, 
                         nextNode.LocalPosition.z + stepDistance * Mathf.Sin(parent.angle));
                 }
-                nextNode.parent = parent;
                 nextNode.hScore = Heuristic(nextNode.LocalPosition);
-                nextNode.gScore += stepDistance; // TODO: fix since driving on a circle not straight line
+                nextNode.gScore += stepDistance;
 
                 yield return nextNode;
                 
@@ -212,6 +216,7 @@ namespace aStar
             //                             orientation,
             //                             hitInfo.distance,
             //                             Color.blue);
+            
             return !hit;
     }
 
@@ -222,6 +227,10 @@ namespace aStar
 
         private bool GoalReached(Vector3 postion)
         {
+            Vector3Int cell = grid.LocalToCell(postion);
+            Vector2Int cell2d = new Vector2Int(cell.x, cell.y);
+            if (!flowField.ContainsKey(cell2d))
+                return flowField[cell2d] < goalThreshold;
             return Vector2.Distance(new Vector2(postion.x, postion.z), new Vector2(localGoal.x, localGoal.z)) < goalThreshold;
         }
         private float Heuristic(Vector3 localPosition)
@@ -242,61 +251,19 @@ namespace aStar
                 flowField.Add(key, int.MaxValue);
             }
         }
-        // void CalculateFlowField()
-        // {
-        //     var goalCell = new Vector2Int(grid.LocalToCell(localGoal).x, grid.LocalToCell(localGoal).y); 
 
-        //     var openSet = new Queue<Vector2Int>();
-        //     openSet.Enqueue(goalCell);
-        //     flowField[goalCell] = 0;
-
-        //     Vector2Int[] neighbors = new Vector2Int[]
-        //     {
-        //         Vector2Int.down, Vector2Int.up, Vector2Int.left, Vector2Int.right,
-        //         new (-1, -1), new(-1, 1), new(1, -1), new(1, 1)
-        //     };
-        //     float[] dist = new float[]
-        //     {
-        //         grid.cellSize.z + grid.cellGap.z, grid.cellSize.z + grid.cellGap.z, grid.cellSize.x + grid.cellGap.x, grid.cellSize.x + grid.cellGap.x,
-        //         stepDistance, stepDistance, stepDistance, stepDistance
-        //     };
-
-        //     // Perform a breadth-first search to calculate the flowfield
-        //     while (openSet.Count > 0)
-        //     {
-        //         Vector2Int currentCell = openSet.Dequeue();
-
-        //         for (int i = 0; i < neighbors.Length; ++i)
-        //         {
-        //             Vector2Int offset = neighbors[i];
-        //             Vector2Int neighborCell = currentCell + offset;
-
-        //             // Check if the neighbor is within bounds
-        //             if (IsCellValid(neighborCell) && flowField[neighborCell] == int.MaxValue)
-        //             {
-        //                 // Add the neighbor to the open set and update its cost
-        //                 openSet.Enqueue(neighborCell);
-        //                 flowField[neighborCell] = flowField[currentCell] + dist[i];
-        //             }
-        //         }
-        //     }
-        // }
-        
-        void CalculateFlowFieldDijkstra()
+        void CalculateFlowField()
         {
-            Debug.Log("Goal local: " + localGoal);
-            var goalCell = new Vector2Int(grid.LocalToCell(localGoal).x, grid.LocalToCell(localGoal).y);
+            var goalCell = new Vector2Int(grid.LocalToCell(localGoal).x, grid.LocalToCell(localGoal).y); 
 
-            var openSet = new PriorityQueue<float, Vector2Int>();
-            openSet.Enqueue(0, goalCell);
+            var openSet = new Queue<Vector2Int>();
+            openSet.Enqueue(goalCell);
             flowField[goalCell] = 0;
-            
-            Debug.Log("Goalcell: " + goalCell);
 
             Vector2Int[] neighbors = new Vector2Int[]
             {
                 Vector2Int.down, Vector2Int.up, Vector2Int.left, Vector2Int.right,
-                new(-1, -1), new(-1, 1), new(1, -1), new(1, 1)
+                new (-1, -1), new(-1, 1), new(1, -1), new(1, 1)
             };
             float[] dist = new float[]
             {
@@ -304,11 +271,10 @@ namespace aStar
                 stepDistance, stepDistance, stepDistance, stepDistance
             };
 
-
-            // Perform Dijkstra's algorithm to calculate the flow field
+            // Perform a breadth-first search to calculate the flowfield
             while (openSet.Count > 0)
             {
-                var (currentCost, currentCell) = openSet.Dequeue();
+                Vector2Int currentCell = openSet.Dequeue();
 
                 for (int i = 0; i < neighbors.Length; ++i)
                 {
@@ -316,21 +282,65 @@ namespace aStar
                     Vector2Int neighborCell = currentCell + offset;
 
                     // Check if the neighbor is within bounds
-                    if (IsCellValid(neighborCell))
+                    if (IsCellValid(neighborCell) && flowField[neighborCell] == int.MaxValue)
                     {
-                        float occlusionPenalty = traversabilityPerCell[neighborCell] == ObstacleMap.Traversability.Partial ? 1f : 1f;
-                        float newCost = currentCost + dist[i] * occlusionPenalty;
-
-                        if (newCost < flowField[neighborCell])
-                        {
-                            // Update the cost and add the neighbor to the open set
-                            flowField[neighborCell] = newCost;
-                            openSet.Enqueue(newCost, neighborCell);
-                        }
+                        // Add the neighbor to the open set and update its cost
+                        openSet.Enqueue(neighborCell);
+                        flowField[neighborCell] = flowField[currentCell] + dist[i];
                     }
                 }
             }
         }
+
+        // void CalculateFlowFieldDijkstra()
+        // {
+        //     Debug.Log("Goal local: " + localGoal);
+        //     var goalCell = new Vector2Int(grid.LocalToCell(localGoal).x, grid.LocalToCell(localGoal).y);
+
+        //     var openSet = new PriorityQueue<float, Vector2Int>();
+        //     openSet.Enqueue(0, goalCell);
+        //     flowField[goalCell] = 0;
+            
+        //     Debug.Log("Goalcell: " + goalCell);
+
+        //     Vector2Int[] neighbors = new Vector2Int[]
+        //     {
+        //         Vector2Int.down, Vector2Int.up, Vector2Int.left, Vector2Int.right,
+        //         new(-1, -1), new(-1, 1), new(1, -1), new(1, 1)
+        //     };
+        //     float[] dist = new float[]
+        //     {
+        //         grid.cellSize.z + grid.cellGap.z, grid.cellSize.z + grid.cellGap.z, grid.cellSize.x + grid.cellGap.x, grid.cellSize.x + grid.cellGap.x,
+        //         stepDistance, stepDistance, stepDistance, stepDistance
+        //     };
+
+
+        //     // Perform Dijkstra's algorithm to calculate the flow field
+        //     while (openSet.Count > 0)
+        //     {
+        //         var (currentCost, currentCell) = openSet.Dequeue();
+
+        //         for (int i = 0; i < neighbors.Length; ++i)
+        //         {
+        //             Vector2Int offset = neighbors[i];
+        //             Vector2Int neighborCell = currentCell + offset;
+
+        //             // Check if the neighbor is within bounds
+        //             if (IsCellValid(neighborCell))
+        //             {
+        //                 float occlusionPenalty = traversabilityPerCell[neighborCell] == ObstacleMap.Traversability.Partial ? 1f : 1f;
+        //                 float newCost = currentCost + dist[i] * occlusionPenalty;
+
+        //                 if (newCost < flowField[neighborCell])
+        //                 {
+        //                     // Update the cost and add the neighbor to the open set
+        //                     flowField[neighborCell] = newCost;
+        //                     openSet.Enqueue(newCost, neighborCell);
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         bool IsCellValid(Vector2Int cell)
         {
@@ -366,7 +376,7 @@ namespace aStar
 
             AStarNode otherNode = (AStarNode)obj;
             return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition));
-                    // && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 50f; // TODO: export; For angle resolution, multiply value by two FIXME: correct to use steering angle?
+                    // && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 20f; // TODO: export; For angle resolution, multiply value by two FIXME: correct to use steering angle?
         }
 
         public override int GetHashCode()
