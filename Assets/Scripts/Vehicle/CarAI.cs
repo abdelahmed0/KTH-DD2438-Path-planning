@@ -45,13 +45,15 @@ namespace UnityStandardAssets.Vehicles.Car
             mapManager = FindObjectOfType<GameManager>().mapManager;
             my_rigidbody = GetComponent<Rigidbody>();
 
-            // TODO: rescale grid to have square shaped grid cells of length=carLength
-            // float carLength = carCollider.transform.localScale.z;
-            // carLength = 4f;
-            // Debug.Log("Global carLength: " + carLength);
-            // Vector3 gridScale = mapManager.grid.transform.localScale;
-            // mapManager.grid.cellSize = new Vector3(carLength / gridScale.x, carLength / gridScale.y, carLength / gridScale.z);
-            // mapManager.Initialize();
+            // Rescale grid to have square shaped grid cells with size proportional to the car length
+            float gridCellSize = carCollider.transform.localScale.z * 1f;
+            Debug.Log("Global carLength: " + gridCellSize);
+            Vector3 gridScale = mapManager.grid.transform.localScale;
+            mapManager.grid.cellSize = new Vector3(
+                Mathf.Round(10 * gridCellSize / gridScale.x) / 10f, 
+                Mathf.Round(10 * gridCellSize / gridScale.z) / 10f,
+                Mathf.Round(10 * gridCellSize / gridScale.y) / 10f);
+            mapManager.Initialize();
 
             Vector3 localStart = mapManager.localStartPosition;
             Vector3 localGoal = mapManager.localGoalPosition;

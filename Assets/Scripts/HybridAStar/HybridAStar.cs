@@ -43,12 +43,13 @@ namespace aStar
 
             // Incorporate cellSize and cellGap to prevent steps from landing in the same cell they started in
             Vector3 cellSize = grid.cellSize;
+            Debug.Log("Cellsize: " + cellSize);
             Vector3 cellGap = grid.cellGap;
-            float cellDiagonal = Mathf.Sqrt(cellSize.x * cellSize.x + cellSize.z * cellSize.z);
-            float gapDiagonal = Mathf.Sqrt(cellGap.x * cellGap.x + cellGap.z * cellGap.z);
+            float cellDiagonal = Mathf.Sqrt(cellSize.x * cellSize.x + cellSize.y * cellSize.y);
+            float gapDiagonal = Mathf.Sqrt(cellGap.x * cellGap.x + cellGap.y * cellGap.y);
             stepDistance = cellDiagonal + gapDiagonal + 0.001f;
             Vector3 temp = grid.LocalToWorld(cellSize + cellGap);
-            globalStepDistance = Mathf.Sqrt(temp.x * temp.x + temp.z * temp.z);
+            globalStepDistance = Mathf.Sqrt(temp.x * temp.x + temp.y * temp.y);
             Debug.Log("Step distance: " + stepDistance);
             Debug.Log("Global step distance: " + globalStepDistance);
             Debug.Log("Car length" + carLength);
@@ -57,8 +58,6 @@ namespace aStar
             steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, 0f, maxSteeringAngle * Mathf.Deg2Rad };
 
             Debug.Log("Maximum steering angle: " + maxSteeringAngle);
-
-            InitializeFlowField();
         }
 
 
@@ -68,6 +67,7 @@ namespace aStar
             this.localGoal = localGoal;
             float startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad; // TODO: understand why starting angle is rotated
 
+            InitializeFlowField();
             CalculateFlowField();
 
             // Perform Hybrid-A* to find a path 
@@ -170,11 +170,10 @@ namespace aStar
                 // Debug.Log("Turning angle: "+ turningAngle * Mathf.Rad2Deg);
                 if (Mathf.Abs(turningAngle) > 0.001f)
                 {
-                    float turningRadius = stepDistance / turningAngle;
+                    float turningRadius = globalStepDistance / turningAngle;
 
-                    float cX = parent.LocalPosition.x - Mathf.Sin(parent.angle) * turningRadius;
-                    float cZ = parent.LocalPosition.z + Mathf.Cos(parent.angle) * turningRadius;
-                    
+                    float cX = parent.GetGlobalPosition().x - Mathf.Sin(parent.angle) * turningRadius;
+                    float cZ = parent.GetGlobalPosition().z + Mathf.Cos(parent.angle) * turningRadius;
                     
                     float x = cX + Mathf.Sin(parent.angle + turningAngle) * turningRadius;
                     float z = cZ - Mathf.Cos(parent.angle + turningAngle) * turningRadius;
@@ -182,14 +181,14 @@ namespace aStar
                     nextNode.angle = (nextNode.angle + turningAngle) % (2 * Mathf.PI);
                     // Debug.Log("Acc turning angle: " + nextNode.angle * Mathf.Rad2Deg);
                     
-                    nextNode.LocalPosition = new Vector3(x, nextNode.LocalPosition.y, z);
+                    nextNode.SetGlobalPosition(new Vector3(x, nextNode.GetGlobalPosition().y, z));
                 } 
                 else
                 {
-                    nextNode.LocalPosition = new Vector3(
-                        nextNode.LocalPosition.x + stepDistance * Mathf.Cos(parent.angle), 
-                        nextNode.LocalPosition.y, 
-                        nextNode.LocalPosition.z + stepDistance * Mathf.Sin(parent.angle));
+                    nextNode.SetGlobalPosition(nextNode.GetGlobalPosition() + new Vector3(
+                        globalStepDistance * Mathf.Cos(parent.angle), 
+                        0f, 
+                        globalStepDistance * Mathf.Sin(parent.angle)));
                 }
                 nextNode.hScore = Heuristic(nextNode.LocalPosition);
                 nextNode.gScore += stepDistance;
@@ -238,7 +237,7 @@ namespace aStar
 
         private float SteeringToTurningAngle(float steeringAngle)
         {
-            return stepDistance / carLength * Mathf.Tan(steeringAngle);
+            return globalStepDistance / carCollider.transform.localScale.z * Mathf.Tan(steeringAngle);
         }
 
         private bool GoalReached(Vector3 postion)
@@ -283,7 +282,7 @@ namespace aStar
             };
             float[] dist = new float[]
             {
-                grid.cellSize.z + grid.cellGap.z, grid.cellSize.z + grid.cellGap.z, grid.cellSize.x + grid.cellGap.x, grid.cellSize.x + grid.cellGap.x,
+                grid.cellSize.y + grid.cellGap.y, grid.cellSize.y + grid.cellGap.y, grid.cellSize.x + grid.cellGap.x, grid.cellSize.x + grid.cellGap.x,
                 stepDistance, stepDistance, stepDistance, stepDistance
             };
 
@@ -392,12 +391,11 @@ namespace aStar
 
             AStarNode otherNode = (AStarNode)obj;
             return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition));
-                    // && Mathf.DeltaAngle(angle * Mathf.Rad2Deg, otherNode.angle * Mathf.Rad2Deg) < 20f; // TODO: export; For angle resolution, multiply value by two FIXME: correct to use steering angle?
         }
 
         public override int GetHashCode()
         {
-            return LocalPosition.GetHashCode();
+            return grid.LocalToCell(LocalPosition).GetHashCode();
         }
 
         public float GetFScore()
