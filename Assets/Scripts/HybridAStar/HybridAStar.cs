@@ -22,7 +22,6 @@ namespace aStar
         private readonly Grid grid;
         private readonly ObstacleMap obstacleMap;
         private readonly Dictionary<Vector2Int, ObstacleMap.Traversability> traversabilityPerCell;
-        private readonly CarController car;
         private readonly BoxCollider carCollider;
         private readonly float carLength;
         private readonly float[] steeringAngles;
@@ -32,12 +31,11 @@ namespace aStar
 
         public Dictionary<Vector2Int, float> flowField = null;
 
-        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, CarController car, BoxCollider carCollider)
+        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider carCollider)
         {
             this.grid = grid;
             this.obstacleMap = obstacleMap;
             traversabilityPerCell = obstacleMap.traversabilityPerCell;
-            this.car = car;
             this.carCollider = carCollider;
             carLength = grid.WorldToLocal(carCollider.transform.localScale).z;
             Debug.Log("Collider size: " + grid.WorldToLocal(carCollider.size));
@@ -55,10 +53,10 @@ namespace aStar
             Debug.Log("Global step distance: " + globalStepDistance);
             Debug.Log("Car length" + carLength);
 
-            // steeringAngles = new float[] { -car.m_MaximumSteerAngle * Mathf.Deg2Rad, -car.m_MaximumSteerAngle / 2f * Mathf.Deg2Rad, 0f, car.m_MaximumSteerAngle / 2f * Mathf.Deg2Rad,  car.m_MaximumSteerAngle * Mathf.Deg2Rad };
-            steeringAngles = new float[] { -car.m_MaximumSteerAngle * Mathf.Deg2Rad, 0f, car.m_MaximumSteerAngle * Mathf.Deg2Rad };
+            // steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, -maxSteeringAngle / 2f * Mathf.Deg2Rad, 0f, maxSteeringAngle / 2f * Mathf.Deg2Rad,  maxSteeringAngle * Mathf.Deg2Rad };
+            steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, 0f, maxSteeringAngle * Mathf.Deg2Rad };
 
-            Debug.Log("Maximum steering angle: " + car.m_MaximumSteerAngle);
+            Debug.Log("Maximum steering angle: " + maxSteeringAngle);
 
             InitializeFlowField();
         }
@@ -74,14 +72,14 @@ namespace aStar
 
             // Perform Hybrid-A* to find a path 
             var openSet = new PriorityQueue<float, AStarNode>();
-            int numAngles = 4;
-            float angleResolution = 360 / numAngles;
-            HashSet<AStarNode>[] closedSet = new HashSet<AStarNode>[numAngles];
-
-            for (int i = 0; i < closedSet.Length; i++)
-            {
-                closedSet[i] = new HashSet<AStarNode>();
-            }
+            // int numAngles = 1; // FIXME
+            // float angleResolution = 360 / numAngles;
+            // HashSet<AStarNode>[] closedSet = new HashSet<AStarNode>[numAngles];
+            // for (int i = 0; i < closedSet.Length; i++)
+            // {
+            //     closedSet[i] = new HashSet<AStarNode>();
+            // }
+            HashSet<AStarNode> closedSet = new HashSet<AStarNode>();
 
             var startNode = new AStarNode(localStart, startingAngleRadians, null, grid)
             {
@@ -99,8 +97,9 @@ namespace aStar
                 steps++;
                 var currentNode = openSet.Dequeue().Value;
 
-                Debug.Log("index: " + (int)(WrapAngle(currentNode.angle * Mathf.Rad2Deg) / angleResolution));
-                closedSet[(int)(WrapAngle(currentNode.angle * Mathf.Rad2Deg) / angleResolution)].Add(currentNode);
+                // Debug.Log("index: " + (int)(WrapAngle(currentNode.angle * Mathf.Rad2Deg) / angleResolution));
+                // closedSet[(int)(WrapAngle(currentNode.angle * Mathf.Rad2Deg) / angleResolution)].Add(currentNode);
+                closedSet.Add(currentNode);
 
                 if (GoalReached(currentNode.LocalPosition))
                 {
@@ -116,8 +115,9 @@ namespace aStar
                 // Update neighbors
                 foreach (AStarNode nextNode in GenerateChildNodes(currentNode))
                 {
-                    Debug.Log("index: " + (int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution));
-                    if (closedSet[(int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution)].Contains(nextNode))
+                    // Debug.Log("index: " + (int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution));
+                    // if (closedSet[(int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution)].Contains(nextNode))
+                    if (closedSet.Contains(nextNode))
                     {
                         continue;
                     }
@@ -130,7 +130,8 @@ namespace aStar
                         //     nextGlobal, 
                         //     Color.red, 1000f);
 
-                        closedSet[(int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution)].Add(nextNode);
+                        // closedSet[(int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution)].Add(nextNode);
+                        closedSet.Add(nextNode);
                         continue;
                     }
                     // if (!openSet.UpdateValue(nextNode, (newNode, existingNode) => newNode.gScore < existingNode.gScore))

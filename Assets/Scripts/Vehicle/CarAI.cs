@@ -58,7 +58,7 @@ namespace UnityStandardAssets.Vehicles.Car
             oldTargetPosition = transform.position;
             
             currentNodeIdx = 0;
-            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car, carCollider);
+            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car.m_MaximumSteerAngle, carCollider);
             List<AStarNode> nodePath = pathFinder.GeneratePath(
                 new Vector3(localStart.x, 0.01f, localStart.z),
                 new Vector3(localGoal.x, 0.01f, localGoal.z),
