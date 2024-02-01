@@ -74,7 +74,14 @@ namespace aStar
 
             // Perform Hybrid-A* to find a path 
             var openSet = new PriorityQueue<float, AStarNode>();
-            var closedSet = new HashSet<AStarNode>(); // TODO: use array of hashset for some number of angles per cell (according to some angle resolution)
+            int numAngles = 4;
+            float angleResolution = 360 / numAngles;
+            HashSet<AStarNode>[] closedSet = new HashSet<AStarNode>[numAngles];
+
+            for (int i = 0; i < closedSet.Length; i++)
+            {
+                closedSet[i] = new HashSet<AStarNode>();
+            }
 
             var startNode = new AStarNode(localStart, startingAngleRadians, null, grid)
             {
@@ -91,7 +98,9 @@ namespace aStar
             {
                 steps++;
                 var currentNode = openSet.Dequeue().Value;
-                closedSet.Add(currentNode);
+
+                Debug.Log("index: " + (int)(WrapAngle(currentNode.angle * Mathf.Rad2Deg) / angleResolution));
+                closedSet[(int)(WrapAngle(currentNode.angle * Mathf.Rad2Deg) / angleResolution)].Add(currentNode);
 
                 if (GoalReached(currentNode.LocalPosition))
                 {
@@ -107,7 +116,8 @@ namespace aStar
                 // Update neighbors
                 foreach (AStarNode nextNode in GenerateChildNodes(currentNode))
                 {
-                    if (closedSet.Contains(nextNode))
+                    Debug.Log("index: " + (int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution));
+                    if (closedSet[(int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution)].Contains(nextNode))
                     {
                         continue;
                     }
@@ -120,7 +130,7 @@ namespace aStar
                         //     nextGlobal, 
                         //     Color.red, 1000f);
 
-                        closedSet.Add(nextNode);
+                        closedSet[(int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution)].Add(nextNode);
                         continue;
                     }
                     // if (!openSet.UpdateValue(nextNode, (newNode, existingNode) => newNode.gScore < existingNode.gScore))
@@ -140,6 +150,11 @@ namespace aStar
 
             Debug.LogWarning("No path found in " + steps + " steps");
             return new List<AStarNode>();
+        }
+
+        private float WrapAngle(float angle)
+        {
+            return Mathf.Clamp((angle + 180f) % 360f, 0f, 360f);
         }
 
         private IEnumerable<AStarNode> GenerateChildNodes(AStarNode parent)
@@ -203,14 +218,14 @@ namespace aStar
             Vector3 direction = (nextGlobal - currentGlobal).normalized;
             var orientation = Quaternion.FromToRotation(Vector3.forward, direction);
 
-            bool hit = Physics.BoxCast(currentGlobal,
+            bool hit = Physics.BoxCast(currentGlobal - carCollider.transform.localScale.z * direction,
                                         colliderResizeFactor * carCollider.transform.localScale / 2f,
                                         direction, 
                                         out var hitInfo,
                                         orientation,
                                         globalStepDistance);
             // if (hit)
-            //     ExtDebug.DrawBoxCastOnHit(currentGlobal,
+            //     ExtDebug.DrawBoxCastOnHit(currentGlobal - carCollider.transform.localScale.z * direction,
             //                             colliderResizeFactor * carCollider.transform.localScale / 2f,
             //                             direction, 
             //                             orientation,
