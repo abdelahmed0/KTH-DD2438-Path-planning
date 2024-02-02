@@ -6,6 +6,7 @@ using System;
 using UnityStandardAssets.Vehicles.Car.Map;
 using UnityStandardAssets.Vehicles.Car;
 using UnityEngine.UIElements;
+using UnityEditorInternal;
 
 namespace aStar
 {
@@ -14,8 +15,10 @@ namespace aStar
         // Hybrid A-Star implementation as described in paper
         // "Application of Hybrid A* to an Autonomous Mobile Robot for Path Planning in Unstructured Outdoor Environments"
 
+        // Resolution of 10 corresponds to 360/10=36 possible angles per cell
+        public static float angleResolution = 10f;
         private const float goalThreshold = 1.1f;
-        private const float colliderResizeFactor = 2f;
+        private const float colliderResizeFactor = 1f;
         private const int maxSteps = 100000;
 
         private readonly float stepDistance;
@@ -25,19 +28,17 @@ namespace aStar
         private readonly BoxCollider carCollider;
         private readonly float carLength;
         private readonly float[] steeringAngles;
-        private float gridCellSize;
 
         private Vector3 localStart;
         private Vector3 localGoal;
 
         public Dictionary<Vector2Int, float> flowField = null;
 
-        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider carCollider, float gridCellSize)
+        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider carCollider)
         {
             this.grid = grid;
             this.obstacleMap = obstacleMap;
             this.carCollider = carCollider;
-            this.gridCellSize = gridCellSize;
             carLength = grid.WorldToLocal(carCollider.transform.localScale).z;
             Debug.Log("Collider size: " + grid.WorldToLocal(carCollider.size));
             Debug.Log("Map bounds: " + obstacleMap.mapBounds);
@@ -306,19 +307,22 @@ namespace aStar
 
         public override bool Equals(object obj)
         {
-            // There should only be one node at each position so two nodes are equal if their positions are
             if (obj == null || GetType() != obj.GetType())
             {
                 return false;
             }
 
             AStarNode otherNode = (AStarNode)obj;
-            return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition));
+            int thisRoundedAngle = Mathf.RoundToInt(angle * Mathf.Rad2Deg / HybridAStarGenerator.angleResolution);
+            int otherRoundedAngle = Mathf.RoundToInt(otherNode.angle * Mathf.Rad2Deg / HybridAStarGenerator.angleResolution);
+            return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition))
+                    && thisRoundedAngle == otherRoundedAngle;
         }
 
         public override int GetHashCode()
         {
-            return grid.LocalToCell(LocalPosition).GetHashCode();
+            float roundedAngle = Mathf.RoundToInt(angle * Mathf.Rad2Deg / HybridAStarGenerator.angleResolution);
+            return (grid.LocalToCell(LocalPosition).ToString() + roundedAngle.ToString()).GetHashCode();
         }
 
         public float GetFScore()

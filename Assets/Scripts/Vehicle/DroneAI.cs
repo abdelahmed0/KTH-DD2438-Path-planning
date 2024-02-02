@@ -52,7 +52,7 @@ public class DroneAI : MonoBehaviour
         oldTargetPosition = transform.position;
         
         currentNodeIdx = 0;
-        pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), 20f, droneCollider, gridCellSize);
+        pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), 20f, droneCollider);
         List<AStarNode> nodePath = pathFinder.GeneratePath(
             new Vector3(localStart.x, mapManager.grid.WorldToLocal( droneCollider.transform.position).y, localStart.z),
             new Vector3(localGoal.x, mapManager.grid.WorldToLocal( droneCollider.transform.position).y, localGoal.z),
