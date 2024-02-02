@@ -45,8 +45,6 @@ namespace UnityStandardAssets.Vehicles.Car
             mapManager = FindObjectOfType<GameManager>().mapManager;
             my_rigidbody = GetComponent<Rigidbody>();
 
-            Debug.Log("ObstacleMap1: " + mapManager.GetObstacleMap().GetHashCode());
-
             // Rescale grid to have square shaped grid cells with size proportional to the car length
             float gridCellSize = carCollider.transform.localScale.z * 1f;
             Vector3 gridScale = mapManager.grid.transform.localScale;
@@ -63,12 +61,12 @@ namespace UnityStandardAssets.Vehicles.Car
             oldTargetPosition = transform.position;
             
             currentNodeIdx = 0;
-            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car.m_MaximumSteerAngle, carCollider);
+            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car.m_MaximumSteerAngle, carCollider, gridCellSize);
             List<AStarNode> nodePath = pathFinder.GeneratePath(
                 new Vector3(localStart.x, 0.01f, localStart.z),
                 new Vector3(localGoal.x, 0.01f, localGoal.z),
                 transform.eulerAngles.y);
-            Debug.Log("ObstacleMap2: " + mapManager.GetObstacleMap().GetHashCode());
+
             foreach (var node in nodePath)
             {
                 path.Add(node.LocalPosition);
@@ -211,19 +209,15 @@ namespace UnityStandardAssets.Vehicles.Car
             {
                 foreach (var posEntity in pathFinder.flowField)
                 {
-                    var position = new Vector3Int(posEntity.Key.x, 1, posEntity.Key.y);
-
-                    var cellToLocal = mapManager.grid.CellToLocal(position);
-                    cellToLocal = new Vector3(cellToLocal.x, 1, cellToLocal.y);
-                    cellToLocal += mapManager.grid.cellSize / 2;
-                    cellToLocal = mapManager.grid.transform.TransformPoint(cellToLocal);
+                    var cell = new Vector3Int(posEntity.Key.x, posEntity.Key.y, 1);
+                    var cellGlobal = mapManager.grid.CellToWorld(cell);
 
                     var gizmoSize = mapManager.grid.cellSize;
                     gizmoSize.y = 0.005f;
                     gizmoSize.Scale(mapManager.grid.transform.localScale * 0.8f);
                     
-                    Gizmos.color = Mathf.CorrelatedColorTemperatureToRGB(1000f + 100f * posEntity.Value);
-                    Gizmos.DrawCube(cellToLocal, gizmoSize);
+                    Gizmos.color = Mathf.CorrelatedColorTemperatureToRGB(1000f + 1000f * posEntity.Value);
+                    Gizmos.DrawCube(cellGlobal, gizmoSize);
                 }
             }
         }

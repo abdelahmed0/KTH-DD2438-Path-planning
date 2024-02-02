@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System;
 using UnityStandardAssets.Vehicles.Car.Map;
 using UnityStandardAssets.Vehicles.Car;
+using UnityEngine.UIElements;
 
 namespace aStar
 {
@@ -15,7 +16,7 @@ namespace aStar
 
         private const float goalThreshold = 1.1f;
         private const float colliderResizeFactor = 2f;
-        private const int maxSteps = 10000;
+        private const int maxSteps = 100000;
 
         private readonly float stepDistance;
         private readonly float globalStepDistance;
@@ -24,17 +25,19 @@ namespace aStar
         private readonly BoxCollider carCollider;
         private readonly float carLength;
         private readonly float[] steeringAngles;
+        private float gridCellSize;
 
         private Vector3 localStart;
         private Vector3 localGoal;
 
         public Dictionary<Vector2Int, float> flowField = null;
 
-        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider carCollider)
+        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider carCollider, float gridCellSize)
         {
             this.grid = grid;
             this.obstacleMap = obstacleMap;
             this.carCollider = carCollider;
+            this.gridCellSize = gridCellSize;
             carLength = grid.WorldToLocal(carCollider.transform.localScale).z;
             Debug.Log("Collider size: " + grid.WorldToLocal(carCollider.size));
             Debug.Log("Map bounds: " + obstacleMap.mapBounds);
@@ -65,7 +68,6 @@ namespace aStar
             this.localGoal = localGoal;
             float startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad; // TODO: understand why starting angle is rotated
 
-            InitializeFlowField();
             CalculateFlowField();
 
             // Perform Hybrid-A* to find a path 
@@ -74,7 +76,7 @@ namespace aStar
 
             var startNode = new AStarNode(localStart, startingAngleRadians, null, grid)
             {
-                gScore = 0, hScore = Heuristic(localStart)
+                gScore = 0, hScore = Heuristic(grid.LocalToWorld(localStart))
             };
             openSet.Enqueue(startNode.GetFScore(), startNode);
 
@@ -119,10 +121,10 @@ namespace aStar
                         closedSet.Add(nextNode);
                         continue;
                     }
-
+                    Color hColor = Mathf.CorrelatedColorTemperatureToRGB(1000f + 100f * nextNode.hScore);
                     Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
                         nextGlobal, 
-                        Color.green, 1000f);
+                        hColor, 1000f);
 
                     openSet.Enqueue(nextNode.GetFScore(), nextNode); // Enqueue if node was not updated
                 }
@@ -163,7 +165,7 @@ namespace aStar
                         0f, 
                         globalStepDistance * Mathf.Sin(parent.angle)));
                 }
-                nextNode.hScore = Heuristic(nextNode.LocalPosition);
+                nextNode.hScore = Heuristic(nextNode.GetGlobalPosition());
                 nextNode.gScore += stepDistance;
 
                 yield return nextNode;
@@ -213,24 +215,23 @@ namespace aStar
             return globalStepDistance / carCollider.transform.localScale.z * Mathf.Tan(steeringAngle);
         }
 
-        private bool GoalReached(Vector3 postion)
-        {
-            Vector3Int cell = grid.LocalToCell(postion);
-            Vector2Int cell2d = new Vector2Int(cell.x, cell.y);
-            if (!flowField.ContainsKey(cell2d))
-                return flowField[cell2d] < goalThreshold;
-            return Vector2.Distance(new Vector2(postion.x, postion.z), new Vector2(localGoal.x, localGoal.z)) < goalThreshold;
-        }
-        private float Heuristic(Vector3 localPosition)
+        private bool GoalReached(Vector3 localPosition)
         {
             Vector3Int cell = grid.LocalToCell(localPosition);
             Vector2Int cell2d = new Vector2Int(cell.x, cell.y);
             if (!flowField.ContainsKey(cell2d))
-                return float.MaxValue;
-            else
-                return flowField[cell2d];
+                return flowField[cell2d] < goalThreshold;
+            return Vector2.Distance(new Vector2(localPosition.x, localPosition.z), new Vector2(localGoal.x, localGoal.z)) < goalThreshold;
         }
-        void InitializeFlowField()
+
+        private float Heuristic(Vector3 globalPosition)
+        {
+            Vector3Int cell = grid.WorldToCell(globalPosition);
+            Vector2Int cell2d = new Vector2Int(cell.x, cell.y);
+            return flowField[cell2d];
+        }
+
+        void CalculateFlowField()
         {
             flowField = new Dictionary<Vector2Int, float>(obstacleMap.traversabilityPerCell.Count);
             
@@ -238,10 +239,7 @@ namespace aStar
             {
                 flowField.Add(key, int.MaxValue);
             }
-        }
 
-        void CalculateFlowField()
-        {
             var goalCell = new Vector2Int(grid.LocalToCell(localGoal).x, grid.LocalToCell(localGoal).y); 
 
             var openSet = new Queue<Vector2Int>();
@@ -255,7 +253,7 @@ namespace aStar
             };
             float[] dist = new float[]
             {
-                grid.cellSize.y + grid.cellGap.y, grid.cellSize.y + grid.cellGap.y, grid.cellSize.x + grid.cellGap.x, grid.cellSize.x + grid.cellGap.x,
+                stepDistance, stepDistance, stepDistance, stepDistance,
                 stepDistance, stepDistance, stepDistance, stepDistance
             };
 
@@ -318,7 +316,7 @@ namespace aStar
             return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition));
         }
 
-        public override int GetHashCode() // TODO: decide angle resolution here 
+        public override int GetHashCode()
         {
             return grid.LocalToCell(LocalPosition).GetHashCode();
         }
