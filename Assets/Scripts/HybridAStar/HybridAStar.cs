@@ -15,13 +15,12 @@ namespace aStar
 
         private const float goalThreshold = 1.1f;
         private const float colliderResizeFactor = 2f;
-        private const int maxSteps = 300000;
+        private const int maxSteps = 10000;
 
         private readonly float stepDistance;
         private readonly float globalStepDistance;
         private readonly Grid grid;
         private readonly ObstacleMap obstacleMap;
-        private readonly Dictionary<Vector2Int, ObstacleMap.Traversability> traversabilityPerCell;
         private readonly BoxCollider carCollider;
         private readonly float carLength;
         private readonly float[] steeringAngles;
@@ -35,7 +34,6 @@ namespace aStar
         {
             this.grid = grid;
             this.obstacleMap = obstacleMap;
-            traversabilityPerCell = obstacleMap.traversabilityPerCell;
             this.carCollider = carCollider;
             carLength = grid.WorldToLocal(carCollider.transform.localScale).z;
             Debug.Log("Collider size: " + grid.WorldToLocal(carCollider.size));
@@ -72,13 +70,6 @@ namespace aStar
 
             // Perform Hybrid-A* to find a path 
             var openSet = new PriorityQueue<float, AStarNode>();
-            // int numAngles = 1; // FIXME
-            // float angleResolution = 360 / numAngles;
-            // HashSet<AStarNode>[] closedSet = new HashSet<AStarNode>[numAngles];
-            // for (int i = 0; i < closedSet.Length; i++)
-            // {
-            //     closedSet[i] = new HashSet<AStarNode>();
-            // }
             HashSet<AStarNode> closedSet = new HashSet<AStarNode>();
 
             var startNode = new AStarNode(localStart, startingAngleRadians, null, grid)
@@ -96,9 +87,6 @@ namespace aStar
             {
                 steps++;
                 var currentNode = openSet.Dequeue().Value;
-
-                // Debug.Log("index: " + (int)(WrapAngle(currentNode.angle * Mathf.Rad2Deg) / angleResolution));
-                // closedSet[(int)(WrapAngle(currentNode.angle * Mathf.Rad2Deg) / angleResolution)].Add(currentNode);
                 closedSet.Add(currentNode);
 
                 if (GoalReached(currentNode.LocalPosition))
@@ -115,9 +103,7 @@ namespace aStar
                 // Update neighbors
                 foreach (AStarNode nextNode in GenerateChildNodes(currentNode))
                 {
-                    // Debug.Log("index: " + (int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution));
-                    // if (closedSet[(int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution)].Contains(nextNode))
-                    if (closedSet.Contains(nextNode))
+                    if (closedSet.Contains(nextNode)) // TODO if gScore better, then replace node in closedSet
                     {
                         continue;
                     }
@@ -130,22 +116,15 @@ namespace aStar
                         //     nextGlobal, 
                         //     Color.red, 1000f);
 
-                        // closedSet[(int)(WrapAngle(nextNode.angle * Mathf.Rad2Deg) / angleResolution)].Add(nextNode);
                         closedSet.Add(nextNode);
                         continue;
                     }
-                    // if (!openSet.UpdateValue(nextNode, (newNode, existingNode) => newNode.gScore < existingNode.gScore))
-                    // {
-                        Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                            nextGlobal, 
-                            Color.green, 1000f);
 
-                        openSet.Enqueue(nextNode.GetFScore(), nextNode); // Enqueue if node was not updated
-                    // } else {
-                    //     Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                    //         nextGlobal, 
-                    //         Color.yellow, 1000f);
-                    // }
+                    Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                        nextGlobal, 
+                        Color.green, 1000f);
+
+                    openSet.Enqueue(nextNode.GetFScore(), nextNode); // Enqueue if node was not updated
                 }
             }
 
@@ -153,14 +132,8 @@ namespace aStar
             return new List<AStarNode>();
         }
 
-        private float WrapAngle(float angle)
-        {
-            return Mathf.Clamp((angle + 180f) % 360f, 0f, 360f);
-        }
-
         private IEnumerable<AStarNode> GenerateChildNodes(AStarNode parent)
         {
-            // FIXME: uses local coordinates, so it does not work for terrainB with weird scales
             foreach (float steeringAngle in steeringAngles)
             {
                 var nextNode = parent.Copy();
@@ -206,12 +179,12 @@ namespace aStar
             
             // Check if outside of map
             var cell2d = new Vector2Int(cell.x, cell.y);
-            if (!traversabilityPerCell.ContainsKey(cell2d))
+            if (!obstacleMap.traversabilityPerCell.ContainsKey(cell2d))
                 return false;
                                         
             // Node in blocked cell
             var nextCell = grid.LocalToCell(next.LocalPosition);
-            if (traversabilityPerCell[new Vector2Int(nextCell.x, nextCell.y)] == ObstacleMap.Traversability.Blocked)
+            if (obstacleMap.traversabilityPerCell[new Vector2Int(nextCell.x, nextCell.y)] == ObstacleMap.Traversability.Blocked)
                 return false;
             
             // Check if path to node is blocked
@@ -259,9 +232,9 @@ namespace aStar
         }
         void InitializeFlowField()
         {
-            flowField = new Dictionary<Vector2Int, float>(traversabilityPerCell.Count);
+            flowField = new Dictionary<Vector2Int, float>(obstacleMap.traversabilityPerCell.Count);
             
-            foreach (Vector2Int key in traversabilityPerCell.Keys)
+            foreach (Vector2Int key in obstacleMap.traversabilityPerCell.Keys)
             {
                 flowField.Add(key, int.MaxValue);
             }
@@ -307,61 +280,13 @@ namespace aStar
             }
         }
 
-        // void CalculateFlowFieldDijkstra()
-        // {
-        //     Debug.Log("Goal local: " + localGoal);
-        //     var goalCell = new Vector2Int(grid.LocalToCell(localGoal).x, grid.LocalToCell(localGoal).y);
-
-        //     var openSet = new PriorityQueue<float, Vector2Int>();
-        //     openSet.Enqueue(0, goalCell);
-        //     flowField[goalCell] = 0;
-            
-        //     Debug.Log("Goalcell: " + goalCell);
-
-        //     Vector2Int[] neighbors = new Vector2Int[]
-        //     {
-        //         Vector2Int.down, Vector2Int.up, Vector2Int.left, Vector2Int.right,
-        //         new(-1, -1), new(-1, 1), new(1, -1), new(1, 1)
-        //     };
-        //     float[] dist = new float[]
-        //     {
-        //         grid.cellSize.z + grid.cellGap.z, grid.cellSize.z + grid.cellGap.z, grid.cellSize.x + grid.cellGap.x, grid.cellSize.x + grid.cellGap.x,
-        //         stepDistance, stepDistance, stepDistance, stepDistance
-        //     };
-
-
-        //     // Perform Dijkstra's algorithm to calculate the flow field
-        //     while (openSet.Count > 0)
-        //     {
-        //         var (currentCost, currentCell) = openSet.Dequeue();
-
-        //         for (int i = 0; i < neighbors.Length; ++i)
-        //         {
-        //             Vector2Int offset = neighbors[i];
-        //             Vector2Int neighborCell = currentCell + offset;
-
-        //             // Check if the neighbor is within bounds
-        //             if (IsCellValid(neighborCell))
-        //             {
-        //                 float occlusionPenalty = traversabilityPerCell[neighborCell] == ObstacleMap.Traversability.Partial ? 1f : 1f;
-        //                 float newCost = currentCost + dist[i] * occlusionPenalty;
-
-        //                 if (newCost < flowField[neighborCell])
-        //                 {
-        //                     // Update the cost and add the neighbor to the open set
-        //                     flowField[neighborCell] = newCost;
-        //                     openSet.Enqueue(newCost, neighborCell);
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
         bool IsCellValid(Vector2Int cell)
         {
-            return traversabilityPerCell.ContainsKey(cell) && traversabilityPerCell[cell] != ObstacleMap.Traversability.Blocked;
+            return obstacleMap.traversabilityPerCell.ContainsKey(cell) 
+                    && obstacleMap.traversabilityPerCell[cell] != ObstacleMap.Traversability.Blocked;
         }
     }
+
 
     public class AStarNode
     {
@@ -393,7 +318,7 @@ namespace aStar
             return grid.LocalToCell(LocalPosition).Equals(grid.LocalToCell(otherNode.LocalPosition));
         }
 
-        public override int GetHashCode()
+        public override int GetHashCode() // TODO: decide angle resolution here 
         {
             return grid.LocalToCell(LocalPosition).GetHashCode();
         }
@@ -431,6 +356,7 @@ namespace aStar
             return nodePath;
         }
     }
+
 
     public class PriorityQueue<TPriority, TValue>
     {
