@@ -45,14 +45,17 @@ namespace UnityStandardAssets.Vehicles.Car
             mapManager = FindObjectOfType<GameManager>().mapManager;
             my_rigidbody = GetComponent<Rigidbody>();
 
-            // TODO: rescale grid to have square shaped grid cells of length=carLength
-            // float carLength = carCollider.transform.localScale.z;
-            // carLength = 4f;
-            // Debug.Log("Global carLength: " + carLength);
-            // Vector3 gridScale = mapManager.grid.transform.localScale;
-            // mapManager.grid.cellSize = new Vector3(carLength / gridScale.x, carLength / gridScale.y, carLength / gridScale.z);
-            // mapManager.Initialize();
+            // Rescale grid to have square shaped grid cells with size proportional to the car length
+            float gridCellSize = carCollider.transform.localScale.z * 1f;
+            Vector3 gridScale = mapManager.grid.transform.localScale;
 
+            mapManager.grid.cellSize = new Vector3(
+                Mathf.Round(10 * gridCellSize / gridScale.x) / 10f, 
+                Mathf.Round(10 * gridCellSize / gridScale.z) / 10f,
+                Mathf.Round(10 * gridCellSize / gridScale.y) / 10f);
+            mapManager.Initialize();
+
+            // Generate path
             Vector3 localStart = mapManager.localStartPosition;
             Vector3 localGoal = mapManager.localGoalPosition;
             oldTargetPosition = transform.position;
@@ -63,7 +66,7 @@ namespace UnityStandardAssets.Vehicles.Car
                 new Vector3(localStart.x, 0.01f, localStart.z),
                 new Vector3(localGoal.x, 0.01f, localGoal.z),
                 transform.eulerAngles.y);
-            
+
             foreach (var node in nodePath)
             {
                 path.Add(node.LocalPosition);
@@ -90,84 +93,6 @@ namespace UnityStandardAssets.Vehicles.Car
             
         }        
 
-        private List<Vector3> GenerateAStarPath(Vector3 localStart, Vector3 localGoal)
-        {
-            var roadPath = new List<Vector3>();
-
-            var obstacleMap = mapManager.GetObstacleMap();
-            Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
-
-            Vector3Int startCell = mapManager.grid.LocalToCell(localStart);
-            Vector3Int goalCell = mapManager.grid.LocalToCell(localGoal);
-
-            // Perform A* to find a path 
-            var openSet = new PriorityQueue<float, Vector3Int>();
-            var closedSet = new HashSet<Vector3Int>();
-            var parentMap = new Dictionary<Vector3Int, Vector3Int>();
-            var gScore = new Dictionary<Vector3Int, float>();
-            var fScore = new Dictionary<Vector3Int, float>();
-
-            openSet.Enqueue(0, startCell);
-
-            gScore[startCell] = 0;
-            fScore[startCell] = Vector3.Distance(mapManager.grid.CellToLocal(startCell), mapManager.grid.CellToLocal(goalCell));
-
-            while (openSet.Count > 0)
-            {
-                var currentCell = openSet.Dequeue().Value;
-
-                if (currentCell == goalCell)
-                {
-                     // Reconstruct the path if the goal is reached
-                    while (currentCell != startCell)
-                    {
-                        Vector3 current = mapManager.grid.GetCellCenterLocal(currentCell);
-                        roadPath.Add(new Vector3(current.x, 0, current.y));
-                        currentCell = parentMap[currentCell];
-                    }
-                    roadPath.Add(localStart);
-                    roadPath.Reverse();
-                    break;
-                }
-
-                closedSet.Add(currentCell);
-
-                foreach (Vector3Int neighbor in GetNeighborCells(currentCell))
-                {
-                    if (closedSet.Contains(neighbor))
-                    {
-                        continue;
-                    }
-
-                    float tmpGScore = gScore[currentCell] + Vector3.Distance(mapManager.grid.CellToLocal(currentCell), mapManager.grid.CellToLocal(neighbor));
-
-                    if (!gScore.ContainsKey(neighbor) || tmpGScore < gScore[neighbor])
-                    {
-                        gScore[neighbor] = tmpGScore;
-                        float hValue = Vector3.Distance(mapManager.grid.CellToLocal(neighbor), mapManager.grid.CellToLocal(goalCell));
-                        if (mapData[new Vector2Int(neighbor.x, neighbor.z)] == ObstacleMap.Traversability.Partial) // negative reward for partialy traversable cells
-                            hValue += 1f;
-
-                        fScore[neighbor] = gScore[neighbor] + hValue;
-                        parentMap[neighbor] = currentCell;
-
-                        if (!openSet.Contains(neighbor))
-                        {
-                            openSet.Enqueue(fScore[neighbor], neighbor);
-
-                            // Debug
-                            // Vector3 neighborLocal = mapManager.grid.CellToLocal(neighbor);
-                            // Debug.DrawLine(mapManager.grid.LocalToWorld(localStart), 
-                            //     mapManager.grid.LocalToWorld(new Vector3(neighborLocal.x, 0, neighborLocal.y)), 
-                            //     Color.white, 1000f);
-                        }
-                    }
-                }
-            }
-
-            return roadPath;
-        }
-
         private List<Vector3> GenerateSmoothedPath()
         {
             // Generate smooth path by creating a dubins path between all path nodes 
@@ -185,7 +110,7 @@ namespace UnityStandardAssets.Vehicles.Car
                 Quaternion startRotation = Quaternion.LookRotation(startDir);
                 Quaternion goalRotation = Quaternion.LookRotation(goalDir);
 
-                // Convert quaternions to Euler angles in degrees
+                // Convert quaternions to Euler angles
                 float startHeading = startRotation.eulerAngles.y * Mathf.Deg2Rad;
                 float goalHeading = goalRotation.eulerAngles.y * Mathf.Deg2Rad;
 
@@ -209,32 +134,6 @@ namespace UnityStandardAssets.Vehicles.Car
             }
             smoothedPath.Add(path[path.Count-1]);
             return smoothedPath; // smoothed path with local coordinates
-        }
-
-        private IEnumerable<Vector3Int> GetNeighborCells(Vector3Int cell)
-        {
-            var obstacleMap = mapManager.GetObstacleMap();
-            Dictionary<Vector2Int, ObstacleMap.Traversability> mapData = obstacleMap.traversabilityPerCell;
-
-            // First four are the non-diagonal neighbor offsets
-            int[] xOffsets = { -1, 0, 1, 0, 1, 1, -1, -1 };
-            int[] zOffsets = { 0, 1, 0, -1, 1, -1, 1, -1 };
-
-            for (int i = 0; i < xOffsets.Length; i++)
-            {
-                int x_offset = xOffsets[i];
-                int z_offset = zOffsets[i];
-
-                var neighbor = cell;
-                neighbor.x += x_offset;
-                neighbor.z += z_offset;
-                var neighbor2d = new Vector2Int(neighbor.x, neighbor.z);
-
-                if (mapData.ContainsKey(neighbor2d) && mapData[neighbor2d] != ObstacleMap.Traversability.Blocked)
-                {
-                    yield return neighbor;
-                }
-            }
         }
 
         private void FixedUpdate()
@@ -310,101 +209,16 @@ namespace UnityStandardAssets.Vehicles.Car
             {
                 foreach (var posEntity in pathFinder.flowField)
                 {
-                    var position = new Vector3Int(posEntity.Key.x, 1, posEntity.Key.y);
-
-                    var cellToLocal = mapManager.grid.CellToLocal(position);
-                    cellToLocal = new Vector3(cellToLocal.x, 1, cellToLocal.y);
-                    cellToLocal += mapManager.grid.cellSize / 2;
-                    cellToLocal = mapManager.grid.transform.TransformPoint(cellToLocal);
+                    var cell = new Vector3Int(posEntity.Key.x, posEntity.Key.y, 1);
+                    var cellGlobal = mapManager.grid.CellToWorld(cell);
 
                     var gizmoSize = mapManager.grid.cellSize;
                     gizmoSize.y = 0.005f;
                     gizmoSize.Scale(mapManager.grid.transform.localScale * 0.8f);
                     
-                    Gizmos.color = Mathf.CorrelatedColorTemperatureToRGB(1000f + 100f * posEntity.Value);
-                    Gizmos.DrawCube(cellToLocal, gizmoSize);
+                    Gizmos.color = Mathf.CorrelatedColorTemperatureToRGB(1000f + 1000f * posEntity.Value);
+                    Gizmos.DrawCube(cellGlobal, gizmoSize);
                 }
-            }
-        }
-    }
-
-    public class PriorityQueue<TPriority, TValue>
-    {
-        private readonly List<Node> elements = new();
-
-        public int Count => elements.Count;
-
-        public void Enqueue(TPriority priority, TValue value)
-        {
-            var newNode = new Node(priority, value);
-            elements.Add(newNode);
-            int index = elements.Count - 1;
-
-            while (index > 0)
-            {
-                int parentIndex = (index - 1) / 2;
-                if (Comparer<TPriority>.Default.Compare(elements[parentIndex].Priority, newNode.Priority) <= 0)
-                    break;
-
-                elements[index] = elements[parentIndex];
-                index = parentIndex;
-            }
-
-            elements[index] = newNode;
-        }
-
-        public KeyValuePair<TPriority, TValue> Dequeue()
-        {
-            if (elements.Count == 0)
-                throw new InvalidOperationException("Queue is empty");
-
-            var frontItem = elements[0];
-            int lastIndex = elements.Count - 1;
-            elements[0] = elements[lastIndex];
-            elements.RemoveAt(lastIndex);
-
-            int index = 0;
-            while (true)
-            {
-                int childIndex = index * 2 + 1;
-                if (childIndex >= lastIndex)
-                    break;
-
-                int rightChildIndex = childIndex + 1;
-                if (rightChildIndex < lastIndex && Comparer<TPriority>.Default.Compare(elements[rightChildIndex].Priority, elements[childIndex].Priority) < 0)
-                    childIndex = rightChildIndex;
-
-                if (Comparer<TPriority>.Default.Compare(elements[childIndex].Priority, elements[index].Priority) >= 0)
-                    break;
-
-                (elements[childIndex], elements[index]) = (elements[index], elements[childIndex]);
-                index = childIndex;
-            }
-
-            return new KeyValuePair<TPriority, TValue>(frontItem.Priority, frontItem.Value);
-        }
-
-         public bool Contains(TValue value)
-        {
-            foreach (var element in elements)
-            {
-                if (EqualityComparer<TValue>.Default.Equals(element.Value, value))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private class Node
-        {
-            public TPriority Priority { get; }
-            public TValue Value { get; }
-
-            public Node(TPriority priority, TValue value)
-            {
-                Priority = priority;
-                Value = value;
             }
         }
     }

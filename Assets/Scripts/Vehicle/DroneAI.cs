@@ -33,10 +33,19 @@ public class DroneAI : MonoBehaviour
     {
         droneCollider = gameObject.GetComponent<BoxCollider>();
         my_rigidbody = GetComponent<Rigidbody>();
-
-        // get the drone controller
         m_Drone = GetComponent<DroneController>();
         mapManager = FindObjectOfType<GameManager>().mapManager;
+
+         // Rescale grid to have square shaped grid cells with size proportional to the drone's length
+        float gridCellSize = droneCollider.transform.localScale.z * 1f;
+        Vector3 gridScale = mapManager.grid.transform.localScale;
+
+        mapManager.grid.cellSize = new Vector3(
+            Mathf.Round(10 * gridCellSize / gridScale.x) / 10f, 
+            Mathf.Round(10 * gridCellSize / gridScale.z) / 10f,
+            Mathf.Round(10 * gridCellSize / gridScale.y) / 10f);
+        mapManager.Initialize();
+
       
         Vector3 localStart = mapManager.localStartPosition;
         Vector3 localGoal = mapManager.localGoalPosition;
