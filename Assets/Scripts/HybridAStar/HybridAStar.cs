@@ -25,8 +25,8 @@ namespace aStar
         private readonly float globalStepDistance;
         private readonly Grid grid;
         private readonly ObstacleMap obstacleMap;
-        private readonly BoxCollider carCollider;
-        private readonly float carLength;
+        private readonly BoxCollider collider;
+        private readonly float vehicleLength;
         private readonly float[] steeringAngles;
 
         private Vector3 localStart;
@@ -34,13 +34,13 @@ namespace aStar
 
         public Dictionary<Vector2Int, float> flowField = null;
 
-        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider carCollider)
+        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider collider)
         {
             this.grid = grid;
             this.obstacleMap = obstacleMap;
-            this.carCollider = carCollider;
-            carLength = grid.WorldToLocal(carCollider.transform.localScale).z;
-            Debug.Log("Collider size: " + grid.WorldToLocal(carCollider.size));
+            this.collider = collider;
+            vehicleLength = grid.WorldToLocal(collider.transform.localScale).z;
+            Debug.Log("Collider size: " + grid.WorldToLocal(collider.size));
             Debug.Log("Map bounds: " + obstacleMap.mapBounds);
 
             // Incorporate cellSize and cellGap to prevent steps from landing in the same cell they started in
@@ -54,10 +54,10 @@ namespace aStar
             globalStepDistance = Mathf.Sqrt(temp.x * temp.x + temp.y * temp.y);
             Debug.Log("Step distance: " + stepDistance);
             Debug.Log("Global step distance: " + globalStepDistance);
-            Debug.Log("Car length" + carLength);
+            Debug.Log("Car length" + vehicleLength);
 
-            // steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, -maxSteeringAngle / 2f * Mathf.Deg2Rad, 0f, maxSteeringAngle / 2f * Mathf.Deg2Rad,  maxSteeringAngle * Mathf.Deg2Rad };
-            steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, 0f, maxSteeringAngle * Mathf.Deg2Rad };
+            steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, -maxSteeringAngle / 2f * Mathf.Deg2Rad, 0f, maxSteeringAngle / 2f * Mathf.Deg2Rad,  maxSteeringAngle * Mathf.Deg2Rad };
+            // steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, 0f, maxSteeringAngle * Mathf.Deg2Rad };
 
             Debug.Log("Maximum steering angle: " + maxSteeringAngle);
         }
@@ -122,10 +122,10 @@ namespace aStar
                         closedSet.Add(nextNode);
                         continue;
                     }
-                    Color hColor = Mathf.CorrelatedColorTemperatureToRGB(1000f + 100f * nextNode.hScore);
-                    Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                        nextGlobal, 
-                        hColor, 1000f);
+                    // Color hColor = Mathf.CorrelatedColorTemperatureToRGB(1000f + 100f * nextNode.hScore);
+                    // Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                    //     nextGlobal, 
+                    //     hColor, 1000f);
 
                     openSet.Enqueue(nextNode.GetFScore(), nextNode); // Enqueue if node was not updated
                 }
@@ -194,8 +194,8 @@ namespace aStar
             Vector3 direction = (nextGlobal - currentGlobal).normalized;
             var orientation = Quaternion.FromToRotation(Vector3.forward, direction);
 
-            bool hit = Physics.BoxCast(currentGlobal - carCollider.transform.localScale.z * direction,
-                                        colliderResizeFactor * carCollider.transform.localScale / 2f,
+            bool hit = Physics.BoxCast(currentGlobal - collider.transform.localScale.z * direction * colliderResizeFactor,
+                                        colliderResizeFactor * collider.transform.localScale / 2f,
                                         direction, 
                                         out var hitInfo,
                                         orientation,
@@ -213,7 +213,7 @@ namespace aStar
 
         private float SteeringToTurningAngle(float steeringAngle)
         {
-            return globalStepDistance / carCollider.transform.localScale.z * Mathf.Tan(steeringAngle);
+            return globalStepDistance / collider.transform.localScale.z * Mathf.Tan(steeringAngle);
         }
 
         private bool GoalReached(Vector3 localPosition)
@@ -232,7 +232,7 @@ namespace aStar
             return flowField[cell2d];
         }
 
-        void CalculateFlowField()
+        private void CalculateFlowField()
         {
             flowField = new Dictionary<Vector2Int, float>(obstacleMap.traversabilityPerCell.Count);
             
@@ -250,12 +250,12 @@ namespace aStar
             Vector2Int[] neighbors = new Vector2Int[]
             {
                 Vector2Int.down, Vector2Int.up, Vector2Int.left, Vector2Int.right,
-                new (-1, -1), new(-1, 1), new(1, -1), new(1, 1)
+                // new (-1, -1), new(-1, 1), new(1, -1), new(1, 1)
             };
             float[] dist = new float[]
             {
                 stepDistance, stepDistance, stepDistance, stepDistance,
-                stepDistance, stepDistance, stepDistance, stepDistance
+                // stepDistance, stepDistance, stepDistance, stepDistance
             };
 
             // Perform a breadth-first search to calculate the flowfield
@@ -279,10 +279,37 @@ namespace aStar
             }
         }
 
-        bool IsCellValid(Vector2Int cell)
+        private bool IsCellValid(Vector2Int cell)
         {
             return obstacleMap.traversabilityPerCell.ContainsKey(cell) 
                     && obstacleMap.traversabilityPerCell[cell] != ObstacleMap.Traversability.Blocked;
+        }
+
+        public List<AStarNode> SubSamplePath(List<AStarNode> path, int numSubNodes)
+        {
+            float frac = 1 / (float) numSubNodes;
+            for (int i = 0; i < path.Count-1; ++i)
+            {
+                AStarNode start = path[i];
+                AStarNode end = path[i+1];
+                Vector3 a = start.LocalPosition;
+                Vector3 b = end.LocalPosition;
+
+                AStarNode last = start;
+                for (int j = 0; j < numSubNodes; ++j)
+                {
+                    AStarNode between = start.Copy();
+                    between.LocalPosition = new Vector3(Mathf.Lerp(a.x, b.x, j * frac), Mathf.Lerp(a.y, b.y, j * frac), Mathf.Lerp(a.z, b.z, j * frac));
+                    // between.angle = Mathf.LerpAngle(start.angle * Mathf.Rad2Deg, end.angle * Mathf.Rad2Deg, j * frac) * Mathf.Deg2Rad;
+                    between.parent = last;
+                    last = between;
+                }
+                end.parent = last;
+            }
+
+            List<AStarNode> sampledPath = path[^1].BackTrackPath();
+            sampledPath.Reverse();
+            return sampledPath;
         }
     }
 
