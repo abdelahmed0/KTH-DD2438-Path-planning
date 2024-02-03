@@ -135,8 +135,9 @@ namespace aStar
             return new List<AStarNode>();
         }
 
-        private IEnumerable<AStarNode> GenerateChildNodes(AStarNode parent)
+        private List<AStarNode> GenerateChildNodes(AStarNode parent)
         {
+            List<AStarNode> children = new();
             foreach (float steeringAngle in steeringAngles)
             {
                 var nextNode = parent.Copy();
@@ -168,10 +169,10 @@ namespace aStar
                 }
                 nextNode.hScore = Heuristic(nextNode.GetGlobalPosition());
                 nextNode.gScore += stepDistance;
-
-                yield return nextNode;
                 
+                children.Add(nextNode);
             }
+            return children;
         }
 
         private bool IsReachable(AStarNode current, AStarNode next)
