@@ -199,7 +199,7 @@ namespace aStar
                                         direction, 
                                         out var hitInfo,
                                         orientation,
-                                        globalStepDistance);
+                                        globalStepDistance + collider.transform.localScale.z * colliderResizeFactor);
             // if (hit)
             //     ExtDebug.DrawBoxCastOnHit(currentGlobal - carCollider.transform.localScale.z * direction,
             //                             colliderResizeFactor * carCollider.transform.localScale / 2f,
