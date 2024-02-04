@@ -19,7 +19,7 @@ public class DroneAI : MonoBehaviour
     public float k_d = 0.5f;
     private float integral = 0f;
     public float nodeDistThreshold = 0.4f;
-    public int numberSubSamplingNodes = 5;
+    // public int numberSubSamplingNodes = 2;
     private DroneController m_Drone; // the controller we want to use
     private MapManager mapManager;
     private BoxCollider droneCollider;
@@ -54,15 +54,14 @@ public class DroneAI : MonoBehaviour
         oldTargetPosition = transform.position;
         
         currentNodeIdx = 0;
-        pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), 20f, droneCollider);
+        pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), 18f, droneCollider, 1f);
         nodePath = pathFinder.GeneratePath(
             new Vector3(localStart.x, mapManager.grid.WorldToLocal( droneCollider.transform.position).y, localStart.z),
             new Vector3(localGoal.x, mapManager.grid.WorldToLocal( droneCollider.transform.position).y, localGoal.z),
             transform.eulerAngles.y);
         
-        nodePath = pathFinder.SubSamplePath(nodePath, numberSubSamplingNodes);
+        nodePath = pathFinder.SmoothPath(nodePath);
 
-        // Draw unsmoothed path
         Vector3 old_wp = localStart;
         foreach (var wp in nodePath)
         {
@@ -80,22 +79,21 @@ public class DroneAI : MonoBehaviour
             return;
         }
 
-        var globalPosition = transform.position;
         Vector3 localPosition = mapManager.grid.WorldToLocal(transform.position);
-        
         Vector3 localNextNode = nodePath[currentNodeIdx].LocalPosition;
-        Vector3 globalNextNode = mapManager.grid.LocalToWorld(localNextNode);
+        int nextNextIndex = Math.Clamp(currentNodeIdx+1, 0, nodePath.Count-1);
+        Vector3 localNextNextNode = nodePath[nextNextIndex].LocalPosition;
 
-
-        PidControllTowardsPosition();
-
-        // If car is at pathNode, update pathNodeEnumerator
-        if (currentNodeIdx < nodePath.Count - 1 && Vector3.Distance(mapManager.grid.WorldToLocal(globalPosition), localNextNode) < nodeDistThreshold)
+        if (Vector3.Distance(localPosition, localNextNextNode) <  Vector3.Distance(localPosition, localNextNode))
+        {
+            currentNodeIdx = nextNextIndex;
+        }
+        else if (currentNodeIdx < nodePath.Count - 1 && Vector3.Distance(localPosition, localNextNode) < nodeDistThreshold)
         {
             currentNodeIdx++;
         }
 
-        Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
+        PidControllTowardsPosition();
     }
 
     private void PidControllTowardsPosition()
@@ -105,14 +103,14 @@ public class DroneAI : MonoBehaviour
             Vector3 targetPosition = mapManager.grid.LocalToWorld(target.LocalPosition);
             Vector3 nextTargetPosition = mapManager.grid.LocalToWorld(nextTarget.LocalPosition);
 
-            int lookAHead = 5;
-            float accAngle = 0f;
-            for (int i = 0; i < lookAHead * numberSubSamplingNodes; ++i)
-            {
-                accAngle += Mathf.Abs(Mathf.DeltaAngle(target.angle * Mathf.Rad2Deg,
-                                        nodePath[Math.Clamp(currentNodeIdx+1+i, 0, nodePath.Count-1)].angle * Mathf.Rad2Deg));
-            }
-            accAngle = m_Drone.max_speed * (Mathf.Clamp(accAngle, 0f, 180f * lookAHead * numberSubSamplingNodes) / (180f * lookAHead * numberSubSamplingNodes));
+            // int lookAHead = 5;
+            // float accAngle = 0f;
+            // for (int i = 0; i < lookAHead * numberSubSamplingNodes; ++i)
+            // {
+            //     accAngle += Mathf.Abs(Mathf.DeltaAngle(target.angle * Mathf.Rad2Deg,
+            //                             nodePath[Math.Clamp(currentNodeIdx+1+i, 0, nodePath.Count-1)].angle * Mathf.Rad2Deg));
+            // }
+            // accAngle = m_Drone.max_speed * (Mathf.Clamp(accAngle, 0f, 180f * lookAHead * numberSubSamplingNodes) / (180f * lookAHead * numberSubSamplingNodes));
 
             if (driveInCircle) // for the circle option
             {
@@ -123,8 +121,8 @@ public class DroneAI : MonoBehaviour
             else 
             {   // Make target velocity lower in curves
                 Vector3 headingDir = (nextTargetPosition - targetPosition).normalized;
-                Debug.Log("Heading: " + headingDir + " target speed: " + m_Drone.max_speed / (1 + accAngle) + " current speed: " + my_rigidbody.velocity.magnitude);
-                target_velocity = m_Drone.max_speed * headingDir / Mathf.Exp(accAngle);
+                // Debug.Log("Heading: " + headingDir + " target speed: " + m_Drone.max_speed / (1 + accAngle) + " current speed: " + my_rigidbody.velocity.magnitude);
+                target_velocity = m_Drone.max_speed * headingDir;// / Mathf.Exp(accAngle);
             }
 
             // a PD-controller to get desired acceleration from errors in position and velocity
@@ -139,12 +137,12 @@ public class DroneAI : MonoBehaviour
             Vector3 desired_acceleration = proportional + integralTerm + derivativeTerm;
 
             float steering = Vector3.Dot(desired_acceleration, transform.right);
-            float acceleration = Vector3.Dot(desired_acceleration, transform.forward) / Mathf.Exp(accAngle);
+            float acceleration = Vector3.Dot(desired_acceleration, transform.forward);
 
             Debug.DrawLine(targetPosition, targetPosition + target_velocity, Color.red, Time.deltaTime * 2);
             Debug.DrawLine(my_rigidbody.position, my_rigidbody.position + my_rigidbody.velocity, Color.blue);
             Debug.DrawLine(targetPosition, targetPosition + desired_acceleration, Color.black);   
 
-            m_Drone.Move(0.1f * steering, acceleration);
+            m_Drone.Move(steering, acceleration);
         }
 }

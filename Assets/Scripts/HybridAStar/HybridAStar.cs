@@ -18,9 +18,9 @@ namespace aStar
         // Resolution of 10 corresponds to 360/10=36 possible angles per cell
         public static float angleResolution = 10f;
         private const float goalThreshold = 1.1f;
-        private const float colliderResizeFactor = 1f;
         private const int maxSteps = 100000;
 
+        private readonly float colliderResizeFactor;
         private readonly float stepDistance;
         private readonly float globalStepDistance;
         private readonly Grid grid;
@@ -34,11 +34,12 @@ namespace aStar
 
         public Dictionary<Vector2Int, float> flowField = null;
 
-        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider collider)
+        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider collider, float colliderResizeFactor)
         {
             this.grid = grid;
             this.obstacleMap = obstacleMap;
             this.collider = collider;
+            this.colliderResizeFactor = colliderResizeFactor;
             vehicleLength = grid.WorldToLocal(collider.transform.localScale).z;
             Debug.Log("Collider size: " + grid.WorldToLocal(collider.size));
             Debug.Log("Map bounds: " + obstacleMap.mapBounds);
@@ -56,7 +57,7 @@ namespace aStar
             Debug.Log("Global step distance: " + globalStepDistance);
             Debug.Log("Car length" + vehicleLength);
 
-            steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, -maxSteeringAngle / 2f * Mathf.Deg2Rad, 0f, maxSteeringAngle / 2f * Mathf.Deg2Rad,  maxSteeringAngle * Mathf.Deg2Rad };
+            steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, -maxSteeringAngle / 2f * Mathf.Deg2Rad, 0f, -maxSteeringAngle / 4f * Mathf.Deg2Rad, maxSteeringAngle / 4f * Mathf.Deg2Rad, maxSteeringAngle / 2f * Mathf.Deg2Rad,  maxSteeringAngle * Mathf.Deg2Rad };
             // steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, 0f, maxSteeringAngle * Mathf.Deg2Rad };
 
             Debug.Log("Maximum steering angle: " + maxSteeringAngle);
@@ -67,7 +68,6 @@ namespace aStar
         {
             this.localStart = localStart;
             this.localGoal = localGoal;
-            float startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad; // TODO: understand why starting angle is rotated
 
             CalculateFlowField();
 
@@ -75,15 +75,20 @@ namespace aStar
             var openSet = new PriorityQueue<float, AStarNode>();
             HashSet<AStarNode> closedSet = new HashSet<AStarNode>();
 
-            var startNode = new AStarNode(localStart, startingAngleRadians, null, grid)
-            {
-                gScore = 0, hScore = Heuristic(grid.LocalToWorld(localStart))
-            };
-            openSet.Enqueue(startNode.GetFScore(), startNode);
+            // for (int i = 0; i < steeringAngles.Length; i++)
+            // {
+                float startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad; 
+                var startNode = new AStarNode(localStart, startingAngleRadians, null, grid)
+                {
+                    gScore = 0, hScore = Heuristic(grid.LocalToWorld(localStart))
+                };
+                openSet.Enqueue(startNode.GetFScore(), startNode);
+                
+                var backwardsNode = startNode.Copy();
+                backwardsNode.angle = (startingAngle - 90) * Mathf.Deg2Rad;
+                openSet.Enqueue(startNode.GetFScore(), backwardsNode);
+            // }
 
-            var backwardsNode = startNode.Copy();
-            backwardsNode.angle = (startingAngle - 90) * Mathf.Deg2Rad;
-            openSet.Enqueue(startNode.GetFScore(), backwardsNode);
 
             int steps = 0;
             while (openSet.Count > 0 && steps < maxSteps)
@@ -115,17 +120,17 @@ namespace aStar
 
                     if (!IsReachable(currentNode, nextNode))
                     {
-                        // Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                        //     nextGlobal, 
-                        //     Color.red, 1000f);
+                        Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                            nextGlobal, 
+                            Color.red, 1000f);
 
                         closedSet.Add(nextNode);
                         continue;
                     }
-                    // Color hColor = Mathf.CorrelatedColorTemperatureToRGB(1000f + 100f * nextNode.hScore);
-                    // Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                    //     nextGlobal, 
-                    //     hColor, 1000f);
+                    Color hColor = Mathf.CorrelatedColorTemperatureToRGB(1000f + 100f * nextNode.hScore);
+                    Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                        nextGlobal, 
+                        hColor, 1000f);
 
                     openSet.Enqueue(nextNode.GetFScore(), nextNode); // Enqueue if node was not updated
                 }
@@ -138,6 +143,8 @@ namespace aStar
         private List<AStarNode> GenerateChildNodes(AStarNode parent)
         {
             List<AStarNode> children = new();
+
+            var parentGlobal = parent.GetGlobalPosition();
             foreach (float steeringAngle in steeringAngles)
             {
                 var nextNode = parent.Copy();
@@ -149,23 +156,23 @@ namespace aStar
                 {
                     float turningRadius = globalStepDistance / turningAngle;
 
-                    float cX = parent.GetGlobalPosition().x - Mathf.Sin(parent.angle) * turningRadius;
-                    float cZ = parent.GetGlobalPosition().z + Mathf.Cos(parent.angle) * turningRadius;
+                    float cX = parentGlobal.x - Mathf.Sin(parent.angle) * turningRadius;
+                    float cZ = parentGlobal.z + Mathf.Cos(parent.angle) * turningRadius;
                     
                     float x = cX + Mathf.Sin(parent.angle + turningAngle) * turningRadius;
                     float z = cZ - Mathf.Cos(parent.angle + turningAngle) * turningRadius;
     
                     nextNode.angle = (nextNode.angle + turningAngle) % (2 * Mathf.PI);
-                    // Debug.Log("Acc turning angle: " + nextNode.angle * Mathf.Rad2Deg);
                     
                     nextNode.SetGlobalPosition(new Vector3(x, nextNode.GetGlobalPosition().y, z));
-                } 
+                }
                 else
                 {
                     nextNode.SetGlobalPosition(nextNode.GetGlobalPosition() + new Vector3(
                         globalStepDistance * Mathf.Cos(parent.angle), 
                         0f, 
                         globalStepDistance * Mathf.Sin(parent.angle)));
+
                 }
                 nextNode.hScore = Heuristic(nextNode.GetGlobalPosition());
                 nextNode.gScore += stepDistance;
@@ -202,8 +209,8 @@ namespace aStar
                                         orientation,
                                         globalStepDistance + collider.transform.localScale.z * colliderResizeFactor);
             // if (hit)
-            //     ExtDebug.DrawBoxCastOnHit(currentGlobal - carCollider.transform.localScale.z * direction,
-            //                             colliderResizeFactor * carCollider.transform.localScale / 2f,
+            //     ExtDebug.DrawBoxCastOnHit(currentGlobal - collider.transform.localScale.z * direction * colliderResizeFactor * 2f,
+            //                             colliderResizeFactor * collider.transform.localScale / 2f,
             //                             direction, 
             //                             orientation,
             //                             hitInfo.distance,
@@ -251,12 +258,12 @@ namespace aStar
             Vector2Int[] neighbors = new Vector2Int[]
             {
                 Vector2Int.down, Vector2Int.up, Vector2Int.left, Vector2Int.right,
-                // new (-1, -1), new(-1, 1), new(1, -1), new(1, 1)
+                new (-1, -1), new(-1, 1), new(1, -1), new(1, 1)
             };
             float[] dist = new float[]
             {
                 stepDistance, stepDistance, stepDistance, stepDistance,
-                // stepDistance, stepDistance, stepDistance, stepDistance
+                Mathf.Sqrt(2f * stepDistance * stepDistance), Mathf.Sqrt(2f * stepDistance * stepDistance), Mathf.Sqrt(2f * stepDistance * stepDistance), Mathf.Sqrt(2f * stepDistance * stepDistance)
             };
 
             // Perform a breadth-first search to calculate the flowfield
@@ -286,31 +293,52 @@ namespace aStar
                     && obstacleMap.traversabilityPerCell[cell] != ObstacleMap.Traversability.Blocked;
         }
 
-        public List<AStarNode> SubSamplePath(List<AStarNode> path, int numSubNodes)
+        public List<AStarNode> SmoothPath(List<AStarNode> path)
         {
-            float frac = 1 / (float) numSubNodes;
+
             for (int i = 0; i < path.Count-1; ++i)
             {
-                AStarNode start = path[i];
-                AStarNode end = path[i+1];
-                Vector3 a = start.LocalPosition;
-                Vector3 b = end.LocalPosition;
+                AStarNode parent = path[i];
+                AStarNode next = path[i+1];
+                Vector3 parentGlobal = parent.GetGlobalPosition();
 
-                AStarNode last = start;
-                for (int j = 0; j < numSubNodes; ++j)
+                float turningAngle = next.angle - parent.angle;
+
+                var last = parent;
+                if (Mathf.Abs(turningAngle) > 0.001f)
                 {
-                    AStarNode between = start.Copy();
-                    between.LocalPosition = new Vector3(Mathf.Lerp(a.x, b.x, j * frac), Mathf.Lerp(a.y, b.y, j * frac), Mathf.Lerp(a.z, b.z, j * frac));
-                    // between.angle = Mathf.LerpAngle(start.angle * Mathf.Rad2Deg, end.angle * Mathf.Rad2Deg, j * frac) * Mathf.Deg2Rad;
-                    between.parent = last;
-                    last = between;
+                    float turningRadius = globalStepDistance / turningAngle;
+
+                    float cX = parentGlobal.x - Mathf.Sin(parent.angle) * turningRadius;
+                    float cZ = parentGlobal.z + Mathf.Cos(parent.angle) * turningRadius;
+                    
+                    // Calculate the number of intermediate points based on the angle difference
+                    int numPoints = Mathf.CeilToInt(Mathf.Abs(turningAngle) * Mathf.Rad2Deg / 5f);
+                    Debug.Log("num points: " + numPoints);
+                    for (int j = 1; j < numPoints; j++)
+                    {
+                        float t = j / (float)numPoints;
+                        var intermediate = parent.Copy();
+                        intermediate.parent = last;
+                        float intermediateAngle = Mathf.LerpAngle(0f, turningAngle * Mathf.Rad2Deg, t) * Mathf.Deg2Rad;
+
+                        float x = cX + Mathf.Sin(parent.angle + intermediateAngle) * turningRadius;
+                        float z = cZ - Mathf.Cos(parent.angle + intermediateAngle) * turningRadius;
+                        intermediate.angle = (intermediate.angle + turningAngle) % (2 * Mathf.PI);
+                        intermediate.SetGlobalPosition(new Vector3(x, intermediate.GetGlobalPosition().y, z));
+                        intermediate.hScore = Heuristic(intermediate.GetGlobalPosition());
+                        intermediate.gScore += stepDistance;
+
+                        last = intermediate;
+                    }
+
                 }
-                end.parent = last;
+                next.parent = last;
             }
 
-            List<AStarNode> sampledPath = path[^1].BackTrackPath();
-            sampledPath.Reverse();
-            return sampledPath;
+            List<AStarNode> smoothed = path[^1].BackTrackPath();
+            smoothed.Reverse();
+            return smoothed;
         }
     }
 
