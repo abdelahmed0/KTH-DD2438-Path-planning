@@ -265,14 +265,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 57f37a74d9bc64bfab28e1fee11436aa, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  driveInCircle: 0
-  circleRadius: 15
-  circleSpeed: 5
-  circleCenter: {x: 0, y: 0, z: 0}
-  k_p: 1
+  colliderResizeFactor: 2
+  numberSteeringAngles: 3
+  k_p: 2
   k_i: 0.1
-  k_d: 0.7
-  nodeDistThreshold: 0.2
+  k_d: 0.6
+  nodeDistThreshold: 0.4
   drawDebug: 0
 --- !u!114 &2821545983584829663
 MonoBehaviour:
@@ -281,7 +279,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1246155762223703638}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: de0a9b23fa3784d75b3bdd0088f57e67, type: 3}
   m_Name: 

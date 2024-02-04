@@ -4,7 +4,6 @@ using UnityEngine;
 using System;
 using UnityStandardAssets.Vehicles.Car.Map;
 using System.Linq;
-using dubins;
 using UnityEngine.UIElements;
 using aStar;
 
@@ -13,16 +12,13 @@ namespace UnityStandardAssets.Vehicles.Car
     [RequireComponent(typeof(CarController))]
     public class CarAI : MonoBehaviour
     {
-        public bool driveInCircle = false;
-        public float circleRadius = 15f;
-        public float circleSpeed = 5f;
-        float alpha = 0f;
-        public Vector3 circleCenter = Vector3.zero;
+        public float colliderResizeFactor = 2f;
+        public int numberSteeringAngles = 3;        
         private Vector3 target_velocity;
         public float k_p = 2f;
         public float k_i = 0.1f;
-        public float k_d = 0.5f;
-        public float nodeDistThreshold = 0.3f;
+        public float k_d = 0.7f;
+        public float nodeDistThreshold = 0.4f;
 
         Rigidbody my_rigidbody;
 
@@ -34,7 +30,6 @@ namespace UnityStandardAssets.Vehicles.Car
         private float integral = 0f;
 
         private HybridAStarGenerator pathFinder = null;
-        private DubinsGeneratePaths dubinsPathGenerator;
         public bool drawDebug = false;
 
         private void Start()
@@ -59,11 +54,12 @@ namespace UnityStandardAssets.Vehicles.Car
             Vector3 localGoal = mapManager.localGoalPosition;
             
             currentNodeIdx = 0;
-            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car.m_MaximumSteerAngle, carCollider, 1f);
+            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car.m_MaximumSteerAngle, carCollider, colliderResizeFactor, false);
             nodePath = pathFinder.GeneratePath(
                 new Vector3(localStart.x, 0.01f, localStart.z),
                 new Vector3(localGoal.x, 0.01f, localGoal.z),
-                transform.eulerAngles.y);
+                transform.eulerAngles.y,
+                numberSteeringAngles);
 
             nodePath = pathFinder.SmoothPath(nodePath);
 
@@ -85,27 +81,16 @@ namespace UnityStandardAssets.Vehicles.Car
             }
             Vector3 localPosition = mapManager.grid.WorldToLocal(transform.position);
 
-            // bool updated = true;
+            Vector3 localNextNode = nodePath[currentNodeIdx].LocalPosition;
+            int nextNextIndex = Math.Clamp(currentNodeIdx+1, 0, nodePath.Count-1);
+            Vector3 localNextNextNode = nodePath[nextNextIndex].LocalPosition;
 
-            // while (updated)
-            // {
-                Vector3 localNextNode = nodePath[currentNodeIdx].LocalPosition;
-                int nextNextIndex = Math.Clamp(currentNodeIdx+1, 0, nodePath.Count-1);
-                Vector3 localNextNextNode = nodePath[nextNextIndex].LocalPosition;
-
-                if (Vector3.Distance(localPosition, localNextNextNode) <  Vector3.Distance(localPosition, localNextNode) - 1f) //TODO Debug here
-                {
-                    currentNodeIdx = nextNextIndex;
-                }
-                else if (currentNodeIdx < nodePath.Count - 1 && Vector3.Distance(localPosition, localNextNode) < nodeDistThreshold)
-                {
-                    currentNodeIdx++;
-                }
-            //     else
-            //     {
-            //         updated = false;
-            //     }
-            // }
+            if (currentNodeIdx < nodePath.Count - 1 
+                && (Vector3.Distance(localPosition, localNextNode) < nodeDistThreshold 
+                    || Vector3.Distance(localPosition, localNextNextNode) <  Vector3.Distance(localPosition, localNextNode)))
+            {
+                currentNodeIdx++;
+            }
 
             // // TODO: Implement backing up of car if stuck (velocity near zero and/or colliding with object)
             // if (my_rigidbody.velocity.magnitude < 1f)
@@ -127,8 +112,6 @@ namespace UnityStandardAssets.Vehicles.Car
             // }
 
             PidControllTowardsPosition();
-
-            // Debug.DrawLine(globalPosition, mapManager.GetGlobalGoalPosition(), Color.blue);
         }
 
         private void PidControllTowardsPosition()
@@ -137,28 +120,9 @@ namespace UnityStandardAssets.Vehicles.Car
             AStarNode nextTarget = nodePath[Math.Clamp(currentNodeIdx+1, 0, nodePath.Count-1)];
             Vector3 targetPosition = mapManager.grid.LocalToWorld(target.LocalPosition);
             Vector3 nextTargetPosition = mapManager.grid.LocalToWorld(nextTarget.LocalPosition);
-
-            // int lookAHead = 3;
-            // float accAngle = 0f;
-            // for (int i = 0; i < lookAHead * numberSubSamplingNodes; ++i)
-            // {
-            //     accAngle += Mathf.Abs(Mathf.DeltaAngle(target.angle * Mathf.Rad2Deg,
-            //                             nodePath[Math.Clamp(currentNodeIdx+1+i, 0, nodePath.Count-1)].angle * Mathf.Rad2Deg));
-            // }
-            // accAngle = m_Car.MaxSpeed * (Mathf.Clamp(accAngle, 0f, 180f * lookAHead * numberSubSamplingNodes) / (180f * lookAHead * numberSubSamplingNodes));
-
-            if (driveInCircle) // for the circle option
-            {
-                alpha +=  Time.deltaTime * (circleSpeed / circleRadius);
-                targetPosition = circleCenter + circleRadius * new Vector3((float)Math.Sin(alpha), 0f, (float)Math.Cos(alpha));
-                target_velocity = circleSpeed * new Vector3((float)Math.Cos(alpha), 0f, -(float)Math.Sin(alpha));
-            }
-            else 
-            {    // Make target velocity lower in curves, where points are closer together
-                Vector3 heading = nextTargetPosition - targetPosition;
-                // Debug.Log("Heading: " + headingDir + " target speed: " + m_Car.MaxSpeed / (1 + accAngle) + " current speed: " + my_rigidbody.velocity.magnitude);
-                target_velocity = heading;// m_Car.MaxSpeed * heading * / (1 + accAngle);
-            }
+  
+            // Make target velocity lower in curves, where points are denser
+            target_velocity = nextTargetPosition - targetPosition;;
 
             // a PD-controller to get desired acceleration from errors in position and velocity
             Vector3 positionError = targetPosition - transform.position;
@@ -172,7 +136,7 @@ namespace UnityStandardAssets.Vehicles.Car
             Vector3 desired_acceleration = proportional + integralTerm + derivativeTerm;
 
             float steering = Vector3.Dot(desired_acceleration, transform.right);
-            float acceleration = Vector3.Dot(desired_acceleration, transform.forward);// / (1 + accAngle);
+            float acceleration = Vector3.Dot(desired_acceleration, transform.forward);
 
             Debug.DrawLine(targetPosition, targetPosition + target_velocity, Color.red, Time.deltaTime * 2);
             Debug.DrawLine(my_rigidbody.position, my_rigidbody.position + my_rigidbody.velocity, Color.blue);

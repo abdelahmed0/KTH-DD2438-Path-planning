@@ -18,7 +18,7 @@ namespace aStar
         // Resolution of 10 corresponds to 360/10=36 possible angles per cell
         public static float angleResolution = 10f;
         private const float goalThreshold = 1.1f;
-        private const int maxSteps = 100000;
+        private const int maxSteps = 300000;
 
         private readonly float colliderResizeFactor;
         private readonly float stepDistance;
@@ -27,14 +27,16 @@ namespace aStar
         private readonly ObstacleMap obstacleMap;
         private readonly BoxCollider collider;
         private readonly float vehicleLength;
-        private readonly float[] steeringAngles;
+        private readonly bool fixedOrientation;
+        private float[] steeringAngles;
+        private float maxSteeringAngle;
 
         private Vector3 localStart;
         private Vector3 localGoal;
 
         public Dictionary<Vector2Int, float> flowField = null;
 
-        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider collider, float colliderResizeFactor)
+        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider collider, float colliderResizeFactor, bool fixedOrientation)
         {
             this.grid = grid;
             this.obstacleMap = obstacleMap;
@@ -57,17 +59,23 @@ namespace aStar
             Debug.Log("Global step distance: " + globalStepDistance);
             Debug.Log("Car length" + vehicleLength);
 
-            steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, -maxSteeringAngle / 2f * Mathf.Deg2Rad, 0f, -maxSteeringAngle / 4f * Mathf.Deg2Rad, maxSteeringAngle / 4f * Mathf.Deg2Rad, maxSteeringAngle / 2f * Mathf.Deg2Rad,  maxSteeringAngle * Mathf.Deg2Rad };
-            // steeringAngles = new float[] { -maxSteeringAngle * Mathf.Deg2Rad, 0f, maxSteeringAngle * Mathf.Deg2Rad };
-
-            Debug.Log("Maximum steering angle: " + maxSteeringAngle);
+            this.maxSteeringAngle = maxSteeringAngle;
+            this.fixedOrientation = fixedOrientation;
         }
 
 
-        public List<AStarNode> GeneratePath(Vector3 localStart, Vector3 localGoal, float startingAngle)
+        public List<AStarNode> GeneratePath(Vector3 localStart, Vector3 localGoal, float startingAngle, int numberSteeringAngles)
         {
             this.localStart = localStart;
             this.localGoal = localGoal;
+            steeringAngles = new float[numberSteeringAngles];
+            for (int i = 0; i < numberSteeringAngles; ++i)
+            {
+                if (i == numberSteeringAngles / 2)
+                    steeringAngles[i] = 0f;
+                else 
+                    steeringAngles[i] = Mathf.Deg2Rad * maxSteeringAngle / (i - (numberSteeringAngles / 2));
+            }
 
             CalculateFlowField();
 
@@ -75,20 +83,16 @@ namespace aStar
             var openSet = new PriorityQueue<float, AStarNode>();
             HashSet<AStarNode> closedSet = new HashSet<AStarNode>();
 
-            // for (int i = 0; i < steeringAngles.Length; i++)
-            // {
-                float startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad; 
-                var startNode = new AStarNode(localStart, startingAngleRadians, null, grid)
-                {
-                    gScore = 0, hScore = Heuristic(grid.LocalToWorld(localStart))
-                };
-                openSet.Enqueue(startNode.GetFScore(), startNode);
-                
-                var backwardsNode = startNode.Copy();
-                backwardsNode.angle = (startingAngle - 90) * Mathf.Deg2Rad;
-                openSet.Enqueue(startNode.GetFScore(), backwardsNode);
-            // }
-
+            float startingAngleRadians = (startingAngle + 90) * Mathf.Deg2Rad; 
+            var startNode = new AStarNode(localStart, startingAngleRadians, null, grid)
+            {
+                gScore = 0, hScore = Heuristic(grid.LocalToWorld(localStart))
+            };
+            openSet.Enqueue(startNode.GetFScore(), startNode);
+            
+            var backwardsNode = startNode.Copy();
+            backwardsNode.angle = (startingAngle - 90) * Mathf.Deg2Rad;
+            openSet.Enqueue(startNode.GetFScore(), backwardsNode);
 
             int steps = 0;
             while (openSet.Count > 0 && steps < maxSteps)
@@ -120,17 +124,17 @@ namespace aStar
 
                     if (!IsReachable(currentNode, nextNode))
                     {
-                        Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                            nextGlobal, 
-                            Color.red, 1000f);
+                        // Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                        //     nextGlobal, 
+                        //     Color.red, 1000f);
 
                         closedSet.Add(nextNode);
                         continue;
                     }
-                    Color hColor = Mathf.CorrelatedColorTemperatureToRGB(1000f + 100f * nextNode.hScore);
-                    Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
-                        nextGlobal, 
-                        hColor, 1000f);
+                    // Color hColor = Mathf.CorrelatedColorTemperatureToRGB(1000f + 100f * nextNode.hScore);
+                    // Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), 
+                    //     nextGlobal, 
+                    //     hColor, 1000f);
 
                     openSet.Enqueue(nextNode.GetFScore(), nextNode); // Enqueue if node was not updated
                 }
@@ -200,16 +204,16 @@ namespace aStar
             
             // Check if path to node is blocked
             Vector3 direction = (nextGlobal - currentGlobal).normalized;
-            var orientation = Quaternion.FromToRotation(Vector3.forward, direction);
+            var orientation = fixedOrientation ? Quaternion.Euler(Vector3.forward) : Quaternion.FromToRotation(Vector3.forward, direction);
 
-            bool hit = Physics.BoxCast(currentGlobal - collider.transform.localScale.z * direction * colliderResizeFactor,
+            bool hit = Physics.BoxCast(currentGlobal - collider.transform.localScale.z * direction,// * colliderResizeFactor,
                                         colliderResizeFactor * collider.transform.localScale / 2f,
                                         direction, 
                                         out var hitInfo,
                                         orientation,
-                                        globalStepDistance + collider.transform.localScale.z * colliderResizeFactor);
+                                        globalStepDistance + collider.transform.localScale.z);// * colliderResizeFactor);
             // if (hit)
-            //     ExtDebug.DrawBoxCastOnHit(currentGlobal - collider.transform.localScale.z * direction * colliderResizeFactor * 2f,
+            //     ExtDebug.DrawBoxCastOnHit(currentGlobal - collider.transform.localScale.z * direction,// - collider.transform.localScale.z * direction * colliderResizeFactor,
             //                             colliderResizeFactor * collider.transform.localScale / 2f,
             //                             direction, 
             //                             orientation,
@@ -295,6 +299,8 @@ namespace aStar
 
         public List<AStarNode> SmoothPath(List<AStarNode> path)
         {
+            if (path == null || path.Count == 0)
+                return new List<AStarNode>();
 
             for (int i = 0; i < path.Count-1; ++i)
             {
@@ -304,8 +310,8 @@ namespace aStar
 
                 float turningAngle = next.angle - parent.angle;
 
-                var last = parent;
-                if (Mathf.Abs(turningAngle) > 0.001f)
+                var last = parent;  
+                if (Mathf.Abs(turningAngle * Mathf.Rad2Deg) > 0.1f)
                 {
                     float turningRadius = globalStepDistance / turningAngle;
 
@@ -314,7 +320,7 @@ namespace aStar
                     
                     // Calculate the number of intermediate points based on the angle difference
                     int numPoints = Mathf.CeilToInt(Mathf.Abs(turningAngle) * Mathf.Rad2Deg / 5f);
-                    Debug.Log("num points: " + numPoints);
+                    // Debug.Log("num points: " + numPoints);
                     for (int j = 1; j < numPoints; j++)
                     {
                         float t = j / (float)numPoints;
