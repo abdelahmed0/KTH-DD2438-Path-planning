@@ -59,7 +59,7 @@ namespace UnityStandardAssets.Vehicles.Car
             Vector3 localGoal = mapManager.localGoalPosition;
             
             currentNodeIdx = 0;
-            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car.m_MaximumSteerAngle, carCollider, 1.4f);
+            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car.m_MaximumSteerAngle, carCollider, 1f);
             nodePath = pathFinder.GeneratePath(
                 new Vector3(localStart.x, 0.01f, localStart.z),
                 new Vector3(localGoal.x, 0.01f, localGoal.z),
@@ -154,7 +154,7 @@ namespace UnityStandardAssets.Vehicles.Car
                 target_velocity = circleSpeed * new Vector3((float)Math.Cos(alpha), 0f, -(float)Math.Sin(alpha));
             }
             else 
-            {   // Make target velocity lower in curves
+            {    // Make target velocity lower in curves, where points are closer together
                 Vector3 heading = nextTargetPosition - targetPosition;
                 // Debug.Log("Heading: " + headingDir + " target speed: " + m_Car.MaxSpeed / (1 + accAngle) + " current speed: " + my_rigidbody.velocity.magnitude);
                 target_velocity = heading;// m_Car.MaxSpeed * heading * / (1 + accAngle);

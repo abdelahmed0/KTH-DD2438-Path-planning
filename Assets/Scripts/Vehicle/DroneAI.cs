@@ -15,11 +15,10 @@ public class DroneAI : MonoBehaviour
     public Vector3 circleCenter = Vector3.zero;
     private Vector3 target_velocity;
     public float k_p = 2f;
-    public float k_i = 0.1f;
-    public float k_d = 0.5f;
+    public float k_i = 0f;
+    public float k_d = 0.8f;
     private float integral = 0f;
     public float nodeDistThreshold = 0.4f;
-    // public int numberSubSamplingNodes = 2;
     private DroneController m_Drone; // the controller we want to use
     private MapManager mapManager;
     private BoxCollider droneCollider;
@@ -54,7 +53,7 @@ public class DroneAI : MonoBehaviour
         oldTargetPosition = transform.position;
         
         currentNodeIdx = 0;
-        pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), 18f, droneCollider, 1f);
+        pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), 20f, droneCollider, 2f);
         nodePath = pathFinder.GeneratePath(
             new Vector3(localStart.x, mapManager.grid.WorldToLocal( droneCollider.transform.position).y, localStart.z),
             new Vector3(localGoal.x, mapManager.grid.WorldToLocal( droneCollider.transform.position).y, localGoal.z),
@@ -103,14 +102,14 @@ public class DroneAI : MonoBehaviour
             Vector3 targetPosition = mapManager.grid.LocalToWorld(target.LocalPosition);
             Vector3 nextTargetPosition = mapManager.grid.LocalToWorld(nextTarget.LocalPosition);
 
-            // int lookAHead = 5;
-            // float accAngle = 0f;
-            // for (int i = 0; i < lookAHead * numberSubSamplingNodes; ++i)
-            // {
-            //     accAngle += Mathf.Abs(Mathf.DeltaAngle(target.angle * Mathf.Rad2Deg,
-            //                             nodePath[Math.Clamp(currentNodeIdx+1+i, 0, nodePath.Count-1)].angle * Mathf.Rad2Deg));
-            // }
-            // accAngle = m_Drone.max_speed * (Mathf.Clamp(accAngle, 0f, 180f * lookAHead * numberSubSamplingNodes) / (180f * lookAHead * numberSubSamplingNodes));
+            int lookAHead = 20;
+            float accAngle = 0f;
+            for (int i = 0; i < lookAHead; ++i)
+            {
+                accAngle += Mathf.Abs(Mathf.DeltaAngle(target.angle * Mathf.Rad2Deg,
+                                        nodePath[Math.Clamp(currentNodeIdx+1+i, 0, nodePath.Count-1)].angle * Mathf.Rad2Deg));
+            }
+            accAngle = m_Drone.max_speed * (Mathf.Clamp(accAngle, 0f, 180f * lookAHead) / (180f * lookAHead));
 
             if (driveInCircle) // for the circle option
             {
@@ -119,10 +118,10 @@ public class DroneAI : MonoBehaviour
                 target_velocity = circleSpeed * new Vector3((float)Math.Cos(alpha), 0f, -(float)Math.Sin(alpha));
             }
             else 
-            {   // Make target velocity lower in curves
-                Vector3 headingDir = (nextTargetPosition - targetPosition).normalized;
+            {   // Make target velocity lower in curves, where points are closer together
+                Vector3 heading = nextTargetPosition - targetPosition;
                 // Debug.Log("Heading: " + headingDir + " target speed: " + m_Drone.max_speed / (1 + accAngle) + " current speed: " + my_rigidbody.velocity.magnitude);
-                target_velocity = m_Drone.max_speed * headingDir;// / Mathf.Exp(accAngle);
+                target_velocity = heading / Mathf.Exp(accAngle);
             }
 
             // a PD-controller to get desired acceleration from errors in position and velocity
