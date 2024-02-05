@@ -13,7 +13,9 @@ namespace UnityStandardAssets.Vehicles.Car
     public class CarAI : MonoBehaviour
     {
         public float colliderResizeFactor = 2f;
-        public int numberSteeringAngles = 3;        
+        public int numberSteeringAngles = 3;
+        public bool allowReversing = true;   
+        public bool smoothPath = false;     
         private Vector3 target_velocity;
         public float k_p = 2f;
         public float k_i = 0.1f;
@@ -28,6 +30,7 @@ namespace UnityStandardAssets.Vehicles.Car
         private List<AStarNode> nodePath = new();
         private int currentNodeIdx;
         private float integral = 0f;
+        // private float stuckTimer = 1f;
 
         private HybridAStarGenerator pathFinder = null;
         public bool drawDebug = false;
@@ -54,14 +57,15 @@ namespace UnityStandardAssets.Vehicles.Car
             Vector3 localGoal = mapManager.localGoalPosition;
             
             currentNodeIdx = 0;
-            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car.m_MaximumSteerAngle, carCollider, colliderResizeFactor, false);
+            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car.m_MaximumSteerAngle, carCollider, colliderResizeFactor, false, 
+                            allowReversing, 2f);
             nodePath = pathFinder.GeneratePath(
                 new Vector3(localStart.x, 0.01f, localStart.z),
                 new Vector3(localGoal.x, 0.01f, localGoal.z),
                 transform.eulerAngles.y,
                 numberSteeringAngles);
 
-            nodePath = pathFinder.SmoothPath(nodePath);
+            nodePath = smoothPath ? pathFinder.SmoothPath(nodePath) : nodePath;
 
             Vector3 old_wp = localStart;
             foreach (var wp in nodePath)
@@ -91,24 +95,43 @@ namespace UnityStandardAssets.Vehicles.Car
             {
                 currentNodeIdx++;
             }
-
-            // // TODO: Implement backing up of car if stuck (velocity near zero and/or colliding with object)
-            // if (my_rigidbody.velocity.magnitude < 1f)
+            
+            // // TODO: Implement backing up of car if stuck
+            // if (my_rigidbody.velocity.magnitude < 0.1f)
             // {
-            //     Dictionary<Vector3, bool> free = new Dictionary<Vector3, bool>
+            //     stuckTimer -= Time.deltaTime;
+
+            //     if (stuckTimer <= 0.0f)
             //     {
-            //         { Vector3.forward, true },
-            //         { Vector3.right, true },  
-            //         { Vector3.back, true },   
-            //         { Vector3.left, true }    
-            //     };
-            //     foreach (Vector3 dir in free.Keys)
-            //     {
-            //          free[dir] = !Physics.Raycast(transform.position,
-            //                             dir,
-            //                             out var hitInfo,
-            //                             (carCollider.ClosestPointOnBounds(dir * float.MaxValue) - transform.position).magnitude + 1f);
+            //         // currentNodeIdx--;
+            //         // Dictionary<Vector3, bool> free = new Dictionary<Vector3, bool>
+            //         // {
+            //         //     { Vector3.forward, true },
+            //         //     // { Vector3.right, true },  
+            //         //     { Vector3.back, true },   
+            //         //     // { Vector3.left, true } 
+            //         // };
+            //         // foreach (Vector3 dir in free.Keys)
+            //         // {
+            //         //     free[dir] = !Physics.Raycast(transform.position,
+            //         //                         dir,
+            //         //                         out var hitInfo,
+            //         //                         (carCollider.ClosestPointOnBounds(dir * float.MaxValue) - transform.position).magnitude + 1f);
+            //         //     if (free[dir])
+            //         //     {
+            //         //         var target = nodePath[currentNodeIdx];
+            //         //         var newTarget = target.Copy();
+            //         //         target.parent = newTarget;
+            //         //         newTarget.LocalPosition = transform.position + dir * 1f;
+            //         //         newTarget.angle = Vector3.Angle(newTarget.GetGlobalPosition(), target.GetGlobalPosition()) * Mathf.Deg2Rad;
+            //         //         nodePath.Insert(currentNodeIdx, newTarget);
+            //         //         break;
+            //         //     }
+            //         // }
             //     }
+            // } else 
+            // {
+            //     stuckTimer = 1f;
             // }
 
             PidControllTowardsPosition();
@@ -136,7 +159,7 @@ namespace UnityStandardAssets.Vehicles.Car
             Vector3 desired_acceleration = proportional + integralTerm + derivativeTerm;
 
             float steering = Vector3.Dot(desired_acceleration, transform.right);
-            float acceleration = Vector3.Dot(desired_acceleration, transform.forward);
+            float acceleration = Vector3.Dot(desired_acceleration, transform.forward);            
 
             Debug.DrawLine(targetPosition, targetPosition + target_velocity, Color.red, Time.deltaTime * 2);
             Debug.DrawLine(my_rigidbody.position, my_rigidbody.position + my_rigidbody.velocity, Color.blue);

@@ -1363,7 +1363,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 5250475147278001453}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: de0a9b23fa3784d75b3bdd0088f57e67, type: 3}
   m_Name: 
@@ -1375,7 +1375,7 @@ MonoBehaviour:
     time_array: []
     file_name: 
     json_string: 
-  RecordingOn: 0
+  RecordingOn: 1
   PlaybackOn: 0
   position_list: []
   rotation_list: []
@@ -1447,12 +1447,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   colliderResizeFactor: 2
-  numberSteeringAngles: 3
+  numberSteeringAngles: 5
   smoothPath: 0
-  k_p: 2
+  k_p: 4
   k_i: 0
-  k_d: 1
-  nodeDistThreshold: 0.1
+  k_d: 2
+  nodeDistThreshold: 0.2
 --- !u!65 &6567878681045020605
 BoxCollider:
   m_ObjectHideFlags: 0

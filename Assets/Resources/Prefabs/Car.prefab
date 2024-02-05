@@ -266,11 +266,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   colliderResizeFactor: 2
-  numberSteeringAngles: 3
+  numberSteeringAngles: 5
+  allowReversing: 0
+  smoothPath: 1
   k_p: 2
-  k_i: 0.1
+  k_i: 0
   k_d: 0.6
-  nodeDistThreshold: 0.4
+  nodeDistThreshold: 0.5
   drawDebug: 0
 --- !u!114 &2821545983584829663
 MonoBehaviour:
@@ -284,7 +286,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: de0a9b23fa3784d75b3bdd0088f57e67, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  trajectory_filename: Text/Traj
+  trajectory_filename: Text/A_Car_30
   recordedInfo:
     position_array: []
     rotation_array: []

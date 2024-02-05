@@ -17,7 +17,7 @@ namespace aStar
 
         // Resolution of 10 corresponds to 360/10=36 possible angles per cell
         public static float angleResolution = 10f;
-        private const float goalThreshold = 1.1f;
+        private const float goalThreshold = 0.5f;
         private const int maxSteps = 300000;
 
         private readonly float colliderResizeFactor;
@@ -28,15 +28,17 @@ namespace aStar
         private readonly BoxCollider collider;
         private readonly float vehicleLength;
         private readonly bool fixedOrientation;
+        private readonly float maxSteeringAngle;
+        private readonly bool allowReversing = false;
+        private readonly float backwardsPenalty;
         private float[] steeringAngles;
-        private float maxSteeringAngle;
 
         private Vector3 localStart;
         private Vector3 localGoal;
 
         public Dictionary<Vector2Int, float> flowField = null;
 
-        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider collider, float colliderResizeFactor, bool fixedOrientation)
+        public HybridAStarGenerator(Grid grid, ObstacleMap obstacleMap, float maxSteeringAngle, BoxCollider collider, float colliderResizeFactor, bool fixedOrientation, bool allowReversing, float backwardsPenalty)
         {
             this.grid = grid;
             this.obstacleMap = obstacleMap;
@@ -61,6 +63,8 @@ namespace aStar
 
             this.maxSteeringAngle = maxSteeringAngle;
             this.fixedOrientation = fixedOrientation;
+            this.allowReversing = allowReversing;
+            this.backwardsPenalty = backwardsPenalty;
         }
 
 
@@ -89,10 +93,6 @@ namespace aStar
                 gScore = 0, hScore = Heuristic(grid.LocalToWorld(localStart))
             };
             openSet.Enqueue(startNode.GetFScore(), startNode);
-            
-            var backwardsNode = startNode.Copy();
-            backwardsNode.angle = (startingAngle - 90) * Mathf.Deg2Rad;
-            openSet.Enqueue(startNode.GetFScore(), backwardsNode);
 
             int steps = 0;
             while (openSet.Count > 0 && steps < maxSteps)
@@ -115,7 +115,7 @@ namespace aStar
                 // Update neighbors
                 foreach (AStarNode nextNode in GenerateChildNodes(currentNode))
                 {
-                    if (closedSet.Contains(nextNode)) // TODO if gScore better, then replace node in closedSet
+                    if (closedSet.Contains(nextNode)) 
                     {
                         continue;
                     }
@@ -136,6 +136,12 @@ namespace aStar
                     //     nextGlobal, 
                     //     hColor, 1000f);
 
+                    // if (nextNode.isBackwards)
+                    //     Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), nextGlobal, Color.yellow, 1000f);
+                    // else
+                    //     Debug.DrawLine(grid.LocalToWorld(currentNode.LocalPosition), nextGlobal, Color.green, 1000f);
+
+                    // TODO if gScore better, then replace node in closedSet
                     openSet.Enqueue(nextNode.GetFScore(), nextNode); // Enqueue if node was not updated
                 }
             }
@@ -151,37 +157,50 @@ namespace aStar
             var parentGlobal = parent.GetGlobalPosition();
             foreach (float steeringAngle in steeringAngles)
             {
-                var nextNode = parent.Copy();
-                nextNode.parent = parent;
-
-                float turningAngle = SteeringToTurningAngle(steeringAngle);
-                // Debug.Log("Turning angle: "+ turningAngle * Mathf.Rad2Deg);
-                if (Mathf.Abs(turningAngle) > 0.001f)
+                // 1 - reverse
+                int reversing = allowReversing ? 1 : 0;
+                for (int i = 0; i <= reversing; ++i)
                 {
-                    float turningRadius = globalStepDistance / turningAngle;
+                    var nextNode = parent.Copy();
+                    nextNode.parent = parent;
 
-                    float cX = parentGlobal.x - Mathf.Sin(parent.angle) * turningRadius;
-                    float cZ = parentGlobal.z + Mathf.Cos(parent.angle) * turningRadius;
-                    
-                    float x = cX + Mathf.Sin(parent.angle + turningAngle) * turningRadius;
-                    float z = cZ - Mathf.Cos(parent.angle + turningAngle) * turningRadius;
-    
-                    nextNode.angle = (nextNode.angle + turningAngle) % (2 * Mathf.PI);
-                    
-                    nextNode.SetGlobalPosition(new Vector3(x, nextNode.GetGlobalPosition().y, z));
-                }
-                else
-                {
-                    nextNode.SetGlobalPosition(nextNode.GetGlobalPosition() + new Vector3(
-                        globalStepDistance * Mathf.Cos(parent.angle), 
-                        0f, 
-                        globalStepDistance * Mathf.Sin(parent.angle)));
+                    nextNode.isBackwards = i == 1;
+                    float reverseFactor = nextNode.isBackwards ? -1f : 1f;
 
+                    float turningAngle = SteeringToTurningAngle(steeringAngle);
+
+                    // Debug.Log("Turning angle: "+ turningAngle * Mathf.Rad2Deg);
+                    if (Mathf.Abs(turningAngle) > 0.001f)
+                    {
+                        float turningRadius = globalStepDistance / turningAngle;
+
+                        float cX = parentGlobal.x - Mathf.Sin(parent.angle) * turningRadius;
+                        float cZ = parentGlobal.z + Mathf.Cos(parent.angle) * turningRadius;
+                        
+                        float x = cX + Mathf.Sin(parent.angle + reverseFactor * turningAngle) * turningRadius;
+                        float z = cZ - Mathf.Cos(parent.angle + reverseFactor * turningAngle) * turningRadius;
+        
+                        nextNode.angle = (parent.angle + reverseFactor * turningAngle) % (2 * Mathf.PI);
+                        
+                        nextNode.SetGlobalPosition(new Vector3(x, nextNode.GetGlobalPosition().y, z));
+                    }
+                    else
+                    {
+                        nextNode.SetGlobalPosition(nextNode.GetGlobalPosition() + new Vector3(
+                            reverseFactor * globalStepDistance * Mathf.Cos(parent.angle), 
+                            0f,
+                            reverseFactor * globalStepDistance * Mathf.Sin(parent.angle)));
+
+                    }
+                    nextNode.hScore = Heuristic(nextNode.GetGlobalPosition()) +  Mathf.Abs(parent.angle - nextNode.angle) / 2f * Mathf.PI;;
+
+                    if (nextNode.isBackwards)
+                        nextNode.hScore += backwardsPenalty;
+
+                    nextNode.gScore += stepDistance;
+                    
+                    children.Add(nextNode);
                 }
-                nextNode.hScore = Heuristic(nextNode.GetGlobalPosition());
-                nextNode.gScore += stepDistance;
-                
-                children.Add(nextNode);
             }
             return children;
         }
@@ -356,6 +375,7 @@ namespace aStar
         public AStarNode parent;
         public float gScore;
         public float hScore;
+        public bool isBackwards = false;
 
         private readonly Grid grid;
 
@@ -404,7 +424,7 @@ namespace aStar
 
         public AStarNode Copy()
         {
-            return new AStarNode(LocalPosition, angle, parent, grid) { gScore = gScore, hScore = hScore };
+            return new AStarNode(LocalPosition, angle, parent, grid) { gScore = gScore, hScore = hScore, isBackwards = isBackwards };
         }
 
         public List<AStarNode> BackTrackPath()

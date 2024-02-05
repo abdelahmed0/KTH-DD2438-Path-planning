@@ -11,6 +11,7 @@ public class DroneAI : MonoBehaviour
     public float colliderResizeFactor = 1.5f;
     public int numberSteeringAngles = 3;
     public bool smoothPath = false;
+    public bool allowReversing = false;
     private Vector3 target_velocity;
     public float k_p = 2f;
     public float k_i = 0f;
@@ -28,7 +29,6 @@ public class DroneAI : MonoBehaviour
 
     private void Start()
     {
-        Debug.Log("asdflkjasdf");
         droneCollider = gameObject.GetComponent<BoxCollider>();
         my_rigidbody = GetComponent<Rigidbody>();
         m_Drone = GetComponent<DroneController>();
@@ -49,7 +49,7 @@ public class DroneAI : MonoBehaviour
         Vector3 localGoal = mapManager.localGoalPosition;
         
         currentNodeIdx = 0;
-        pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), 30f, droneCollider, colliderResizeFactor, true);
+        pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), 40f, droneCollider, colliderResizeFactor, true, allowReversing, 0f);
         nodePath = pathFinder.GeneratePath(
             new Vector3(localStart.x, mapManager.grid.WorldToLocal( droneCollider.transform.position).y, localStart.z),
             new Vector3(localGoal.x, mapManager.grid.WorldToLocal( droneCollider.transform.position).y, localGoal.z),
@@ -66,7 +66,6 @@ public class DroneAI : MonoBehaviour
         }
     }
 
-
     private void FixedUpdate()
     {
         if (nodePath.Count == 0)
@@ -81,7 +80,7 @@ public class DroneAI : MonoBehaviour
 
         if (currentNodeIdx < nodePath.Count - 1 
                 && (Vector3.Distance(localPosition, localNextNode) < nodeDistThreshold 
-                    || Vector3.Distance(localPosition, localNextNextNode) <  Vector3.Distance(localPosition, localNextNode)))
+                    || Vector3.Distance(localPosition, localNextNextNode) < Vector3.Distance(localPosition, localNextNode)))
         {
             currentNodeIdx++;
         }
