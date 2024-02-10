@@ -3,189 +3,137 @@ using System.Collections.Generic;
 using UnityEngine;
 using System;
 using UnityStandardAssets.Vehicles.Car.Map;
-using System.Linq;
-using UnityEngine.UIElements;
-using aStar;
+using System.IO;
+using PathPlanning;
+using util;
 
 namespace UnityStandardAssets.Vehicles.Car
 {
     [RequireComponent(typeof(CarController))]
     public class CarAI : MonoBehaviour
     {
-        public float colliderResizeFactor = 2f;
-        public int numberSteeringAngles = 3;
-        public bool allowReversing = true;   
-        public bool smoothPath = false;     
-        private Vector3 target_velocity;
-        public float k_p = 2f;
-        public float k_i = 0.1f;
-        public float k_d = 0.7f;
-        public float nodeDistThreshold = 0.4f;
-
-        Rigidbody my_rigidbody;
-
         private CarController m_Car; // the car controller we want to use
         private MapManager mapManager;
         private BoxCollider carCollider;
-        private List<AStarNode> nodePath = new();
-        private int currentNodeIdx;
-        private float integral = 0f;
-        // private float stuckTimer = 1f;
+        // public readonly float CELLSIZE = 0.25f;
 
-        private HybridAStarGenerator pathFinder = null;
-        public bool drawDebug = false;
+        private List<Vector2> positions;
+        private List<Vector2> velocities;
+        private List<float> times;
 
+        private Vector2 prevPos;
+
+        public readonly float k_p = 2f;
+        public readonly float k_d = 1.5f;
+
+        public GameObject my_target;
+
+        private int target_pos_vel_idx = 0;
+        private CollisionDetector detector;
+
+        private Vector3 target_position;
+        private Vector3 target_velocity;
+        private Vector3 old_target_pos;
+        private float MARGIN = 2.5f;
+        private float startTime;
         private void Start()
-        {
+        {   
+
             carCollider = gameObject.transform.Find("Colliders/ColliderBottom").gameObject.GetComponent<BoxCollider>();
+            // get the car controller
             m_Car = GetComponent<CarController>();
             mapManager = FindObjectOfType<GameManager>().mapManager;
-            my_rigidbody = GetComponent<Rigidbody>();
 
-            // Rescale grid to have square shaped grid cells with size proportional to the car length
-            float gridCellSize = carCollider.transform.localScale.z * 1f;
-            Vector3 gridScale = mapManager.grid.transform.localScale;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            detector = new CollisionDetector(mapManager, margin: 2.5f);
+            sw.Stop();
+            Debug.Log($"Detector: {sw.ElapsedMilliseconds} ms");
 
-            mapManager.grid.cellSize = new Vector3(
-                Mathf.Round(10 * gridCellSize / gridScale.x) / 10f, 
-                Mathf.Round(10 * gridCellSize / gridScale.z) / 10f,
-                Mathf.Round(10 * gridCellSize / gridScale.y) / 10f);
-            mapManager.Initialize();
+            RRT rrt = new();
 
-            // Generate path
-            Vector3 localStart = mapManager.localStartPosition;
-            Vector3 localGoal = mapManager.localGoalPosition;
-            
-            currentNodeIdx = 0;
-            pathFinder = new(mapManager.grid, mapManager.GetObstacleMap(), m_Car.m_MaximumSteerAngle, carCollider, colliderResizeFactor, false, 
-                            allowReversing, 2f);
-            nodePath = pathFinder.GeneratePath(
-                new Vector3(localStart.x, 0.01f, localStart.z),
-                new Vector3(localGoal.x, 0.01f, localGoal.z),
-                transform.eulerAngles.y,
-                numberSteeringAngles);
+            // Set the dynamic constraints
+            rrt.localPlanner.acceleration = 6f;
+            rrt.localPlanner.deceleration = 6f;
+            rrt.localPlanner.minSpeed = 10f;
+            rrt.localPlanner.maxSpeed = 75f;
+            rrt.localPlanner.minTurnRadius = 6f;
+            rrt.localPlanner.turnRadiusUncap = 35f;
 
-            nodePath = smoothPath ? pathFinder.SmoothPath(nodePath) : nodePath;
+            // Set RRT settings
+            rrt.areaSearch = true;
+            rrt.pruning = false;
+            rrt.startWithKnn = true;
+            rrt.goalPathBias = true;
+            rrt.biasProbability = 0.5f;
+            float timeLimit = 60f; // Stop searching after a certain time
 
-            Vector3 old_wp = localStart;
-            foreach (var wp in nodePath)
-            {
-                Debug.DrawLine(mapManager.grid.LocalToWorld(old_wp), mapManager.grid.LocalToWorld(wp.LocalPosition), Color.magenta, 1000f);
-                old_wp = wp.LocalPosition;
-            }
-            
+            sw.Restart();
+            (positions, times) = rrt.FindPath(mapManager, detector, timeLimit); // List<Vector2> of positions, List<float> of timestamps
+            sw.Stop();
+            Debug.Log($"RRT: {sw.ElapsedMilliseconds} ms");
+
+            prevPos = Vector3ToVector2(mapManager.GetGlobalStartPosition());
+
+            // Save statistics
+            string fileName = "cost_history.json";
+            string jsonString = JsonUtility.ToJson(rrt.costHistory);
+            File.WriteAllText(fileName, jsonString);
+
+            // Draw path
+            rrt.DebugDrawPath();
+            //rrt.DebugDrawTree();
+        }
+
+        private void OnDrawGizmos()
+        {
+            detector.DebugDrawBoundingBoxes();
+            //detector.DebugDrawGrid();
+        }
+        private Vector2 Vector3ToVector2(Vector3 v)
+        {
+            return new Vector2(v.x, v.z);
+        }
+        private Vector3 Vector2ToVector3(Vector2 v)
+        {
+            return new Vector3(v.x, 0.4f, v.y);
         }
 
         private void FixedUpdate()
         {
-            
-            if (nodePath.Count == 0)
-            {
-                return;
-            }
-            Vector3 localPosition = mapManager.grid.WorldToLocal(transform.position);
-
-            Vector3 localNextNode = nodePath[currentNodeIdx].LocalPosition;
-            int nextNextIndex = Math.Clamp(currentNodeIdx+1, 0, nodePath.Count-1);
-            Vector3 localNextNextNode = nodePath[nextNextIndex].LocalPosition;
-
-            if (currentNodeIdx < nodePath.Count - 1 
-                && (Vector3.Distance(localPosition, localNextNode) < nodeDistThreshold 
-                    || Vector3.Distance(localPosition, localNextNextNode) <  Vector3.Distance(localPosition, localNextNode)))
-            {
-                currentNodeIdx++;
-            }
-            
-            // // TODO: Implement backing up of car if stuck
-            // if (my_rigidbody.velocity.magnitude < 0.1f)
-            // {
-            //     stuckTimer -= Time.deltaTime;
-
-            //     if (stuckTimer <= 0.0f)
-            //     {
-            //         // currentNodeIdx--;
-            //         // Dictionary<Vector3, bool> free = new Dictionary<Vector3, bool>
-            //         // {
-            //         //     { Vector3.forward, true },
-            //         //     // { Vector3.right, true },  
-            //         //     { Vector3.back, true },   
-            //         //     // { Vector3.left, true } 
-            //         // };
-            //         // foreach (Vector3 dir in free.Keys)
-            //         // {
-            //         //     free[dir] = !Physics.Raycast(transform.position,
-            //         //                         dir,
-            //         //                         out var hitInfo,
-            //         //                         (carCollider.ClosestPointOnBounds(dir * float.MaxValue) - transform.position).magnitude + 1f);
-            //         //     if (free[dir])
-            //         //     {
-            //         //         var target = nodePath[currentNodeIdx];
-            //         //         var newTarget = target.Copy();
-            //         //         target.parent = newTarget;
-            //         //         newTarget.LocalPosition = transform.position + dir * 1f;
-            //         //         newTarget.angle = Vector3.Angle(newTarget.GetGlobalPosition(), target.GetGlobalPosition()) * Mathf.Deg2Rad;
-            //         //         nodePath.Insert(currentNodeIdx, newTarget);
-            //         //         break;
-            //         //     }
-            //         // }
-            //     }
-            // } else 
-            // {
-            //     stuckTimer = 1f;
-            // }
-
-            PidControllTowardsPosition();
+            ControlCar();   
         }
 
-        private void PidControllTowardsPosition()
+        // Tracking
+        private void ControlCar()
         {
-            AStarNode target = nodePath[currentNodeIdx];
-            AStarNode nextTarget = nodePath[Math.Clamp(currentNodeIdx+1, 0, nodePath.Count-1)];
-            Vector3 targetPosition = mapManager.grid.LocalToWorld(target.LocalPosition);
-            Vector3 nextTargetPosition = mapManager.grid.LocalToWorld(nextTarget.LocalPosition);
-  
-            // Make target velocity lower in curves, where points are denser
-            target_velocity = nextTargetPosition - targetPosition;;
+            Vector2 carPos = new Vector2(transform.position.x, transform.position.z);
+            Vector2 carVelocity = (carPos - prevPos) / Time.fixedDeltaTime;
+            float carSpeed = carVelocity.magnitude;
+            prevPos = carPos;
 
-            // a PD-controller to get desired acceleration from errors in position and velocity
-            Vector3 positionError = targetPosition - transform.position;
-            Vector3 velocityError = target_velocity - my_rigidbody.velocity;
+            // Look ahead proportional to speed
+            float baseLookAhead = 3.5f;
+            float referenceSpeed = 9f;
+            float lookAhead = baseLookAhead * Mathf.Max(carSpeed / referenceSpeed, 0.5f);
             
-            Vector3 proportional = k_p * positionError;
-            integral += Time.fixedDeltaTime * positionError.magnitude;
-            Vector3 integralTerm = k_i * integral * positionError.normalized;
-            Vector3 derivativeTerm = k_d * velocityError;
+            // Get position and velocity that far ahead on the path
+            Vector2 lookAheadPos, lookAheadVel;
+            (lookAheadPos, lookAheadVel) = TrackingUtil.LookAheadPositionAndVelocity(carPos, lookAhead, positions, times);
 
-            Vector3 desired_acceleration = proportional + integralTerm + derivativeTerm;
+            float futureSpeed = lookAheadVel.magnitude;
+            
+            // Calculate inputs
+            float maxSteerAngle = 30f; // Lower = more responsive, higher = more smooth but may overshoot
+            float maxAcceleration = 2f; // Same as above
+            float angle = Vector2.SignedAngle(lookAheadPos-carPos, new Vector2(transform.forward.x, transform.forward.z));
+            float steering = Mathf.Clamp(angle / maxSteerAngle, -1, 1);
+            float acceleration = TrackingUtil.CalculateAcceleration(maxAcceleration, carPos, lookAheadPos, carSpeed, futureSpeed);
 
-            float steering = Vector3.Dot(desired_acceleration, transform.right);
-            float acceleration = Vector3.Dot(desired_acceleration, transform.forward);            
-
-            Debug.DrawLine(targetPosition, targetPosition + target_velocity, Color.red, Time.deltaTime * 2);
-            Debug.DrawLine(my_rigidbody.position, my_rigidbody.position + my_rigidbody.velocity, Color.blue);
-            Debug.DrawLine(targetPosition, targetPosition + desired_acceleration, Color.black);            
-
-            m_Car.Move(steering, acceleration, acceleration, 0f);
-        }
-
-        void OnDrawGizmos()
-        {
-            if (drawDebug && pathFinder != null && pathFinder.flowField != null)
-            {
-                foreach (var posEntity in pathFinder.flowField)
-                {
-                    var cell = new Vector3Int(posEntity.Key.x, posEntity.Key.y, 1);
-                    var cellGlobal = mapManager.grid.CellToWorld(cell);
-
-                    var gizmoSize = mapManager.grid.cellSize;
-                    gizmoSize.y = 0.005f;
-                    gizmoSize.Scale(mapManager.grid.transform.localScale * 0.8f);
-                    
-                    Gizmos.color = Mathf.CorrelatedColorTemperatureToRGB(1000f + 1000f * posEntity.Value);
-                    Gizmos.DrawCube(cellGlobal, gizmoSize);
-                }
-            }
+            Debug.DrawLine(Vector2ToVector3(carPos), Vector2ToVector3(carPos) + new Vector3(0, carSpeed, 0), Color.red);
+            Debug.DrawLine(Vector2ToVector3(lookAheadPos), Vector2ToVector3(lookAheadPos) + new Vector3(0, futureSpeed, 0), Color.red);
+            Debug.DrawLine(Vector2ToVector3(carPos), Vector2ToVector3(lookAheadPos), Color.magenta);
+            
+            m_Car.Move(steering, acceleration, acceleration > 0 ? 0 : -acceleration, 0f);
         }
     }
-
 }
